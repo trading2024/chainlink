@@ -112,7 +112,7 @@ func (hs *headSaver) saveHeads(finalized *evmtypes.Head, canonicalHead bool, new
 		}
 	}
 
-	for _, head := range hs.heads {
+	for _, head := range headsMap {
 		parent, exists := headsMap[head.ParentHash]
 		if exists {
 			head.Parent = parent
