@@ -1416,7 +1416,7 @@ func TestTooManyLogResults(t *testing.T) {
 		from := fq.FromBlock.Uint64()
 		to := fq.ToBlock.Uint64()
 		if to-from >= 4 {
-			return []types.Log{}, &clientErr // return "too many results" error if block range spans 4 or more blocks
+			return []types.Log{}, clientErr // return "too many results" error if block range spans 4 or more blocks
 		}
 		return logs, err
 	})
@@ -1452,7 +1452,7 @@ func TestTooManyLogResults(t *testing.T) {
 		if fq.BlockHash != nil {
 			return []types.Log{}, nil // succeed when single block requested
 		}
-		return []types.Log{}, &clientErr // return "too many results" error if block range spans 4 or more blocks
+		return []types.Log{}, clientErr // return "too many results" error if block range spans 4 or more blocks
 	})
 
 	lp.PollAndSaveLogs(ctx, 298)
