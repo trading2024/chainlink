@@ -484,6 +484,8 @@ func (eb *Broadcaster[CHAIN_ID, HEAD, ADDR, TX_HASH, BLOCK_HASH, SEQ, FEE]) hand
 	}
 
 	switch errType {
+	case client.OutOfCounters:
+		fallthrough
 	case client.Fatal:
 		eb.SvcErrBuffer.Append(err)
 		etx.Error = null.StringFrom(err.Error())
