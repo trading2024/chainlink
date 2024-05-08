@@ -45,7 +45,7 @@ func TestUnit_Node_StateTransitions(t *testing.T) {
 
 	t.Run("transitionToInSync", func(t *testing.T) {
 		const destinationState = nodeStateAlive
-		allowedStates := []nodeState{nodeStateOutOfSync, nodeStateSyncing}
+		allowedStates := []nodeState{nodeStateOutOfSync, nodeStateSyncing, nodeStateFinalizedBlockOutOfSync}
 		rpc := newMockNodeClient[types.ID, Head](t)
 		testTransition(t, rpc, testNode.transitionToInSync, destinationState, allowedStates...)
 	})

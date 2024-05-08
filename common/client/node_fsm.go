@@ -37,6 +37,10 @@ var (
 		Name: "pool_rpc_node_num_transitions_to_syncing",
 		Help: transitionString(nodeStateSyncing),
 	}, []string{"chainID", "nodeName"})
+	promPoolRPCNodeTransitionsToFinalizedBlockOutOfSync = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "pool_rpc_node_num_transitions_to_finalized_block_out_of_sync",
+		Help: transitionString(nodeStateFinalizedBlockOutOfSync),
+	}, []string{"chainID", "nodeName"})
 )
 
 // nodeState represents the current state of the node
@@ -239,7 +243,7 @@ func (n *node[CHAIN_ID, HEAD, RPC]) transitionToInSync(fn func()) {
 		return
 	}
 	switch n.state {
-	case nodeStateOutOfSync, nodeStateSyncing:
+	case nodeStateOutOfSync, nodeStateSyncing, nodeStateFinalizedBlockOutOfSync:
 		n.state = nodeStateAlive
 	default:
 		panic(transitionFail(n.state, nodeStateAlive))
@@ -290,7 +294,8 @@ func (n *node[CHAIN_ID, HEAD, RPC]) transitionToUnreachable(fn func()) {
 		return
 	}
 	switch n.state {
-	case nodeStateUndialed, nodeStateDialed, nodeStateAlive, nodeStateOutOfSync, nodeStateInvalidChainID, nodeStateSyncing:
+	case nodeStateUndialed, nodeStateDialed, nodeStateAlive, nodeStateOutOfSync, nodeStateInvalidChainID,
+		nodeStateSyncing, nodeStateFinalizedBlockOutOfSync:
 		n.disconnectAll()
 		n.state = nodeStateUnreachable
 	default:
@@ -333,7 +338,7 @@ func (n *node[CHAIN_ID, HEAD, RPC]) transitionToInvalidChainID(fn func()) {
 		return
 	}
 	switch n.state {
-	case nodeStateDialed, nodeStateOutOfSync, nodeStateSyncing:
+	case nodeStateDialed, nodeStateOutOfSync, nodeStateSyncing, nodeStateFinalizedBlockOutOfSync:
 		n.disconnectAll()
 		n.state = nodeStateInvalidChainID
 	default:
@@ -358,7 +363,7 @@ func (n *node[CHAIN_ID, HEAD, RPC]) transitionToSyncing(fn func()) {
 		return
 	}
 	switch n.state {
-	case nodeStateDialed, nodeStateOutOfSync, nodeStateInvalidChainID:
+	case nodeStateDialed, nodeStateOutOfSync, nodeStateInvalidChainID, nodeStateFinalizedBlockOutOfSync:
 		n.disconnectAll()
 		n.state = nodeStateSyncing
 	default:
@@ -367,6 +372,31 @@ func (n *node[CHAIN_ID, HEAD, RPC]) transitionToSyncing(fn func()) {
 
 	if !n.nodePoolCfg.NodeIsSyncingEnabled() {
 		panic("unexpected transition to nodeStateSyncing, while it's disabled")
+	}
+	fn()
+}
+
+func (n *node[CHAIN_ID, HEAD, RPC]) declareFinalizedBlockOutOfSync() {
+	n.transitionToFinalizedBlockOutOfSync(func() {
+		n.lfcLog.Errorw("RPC's finalized block is out of sync", "nodeState", n.state)
+		n.wg.Add(1)
+		go n.finalizedBlockOutOfSyncLoop()
+	})
+}
+
+func (n *node[CHAIN_ID, HEAD, RPC]) transitionToFinalizedBlockOutOfSync(fn func()) {
+	promPoolRPCNodeTransitionsToFinalizedBlockOutOfSync.WithLabelValues(n.chainID.String(), n.name).Inc()
+	n.stateMu.Lock()
+	defer n.stateMu.Unlock()
+	if n.state == nodeStateClosed {
+		return
+	}
+	switch n.state {
+	case nodeStateAlive:
+		n.disconnectAll()
+		n.state = nodeStateFinalizedBlockOutOfSync
+	default:
+		panic(transitionFail(n.state, nodeStateFinalizedBlockOutOfSync))
 	}
 	fn()
 }

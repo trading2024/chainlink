@@ -184,3 +184,8 @@ func (e *EVMConfig) FinalizedBlockOffset() uint32 {
 	// TODO: DH implement me
 	return 0
 }
+
+func (e *EVMConfig) NodeNoNewFinalizedHeadsThreshold() time.Duration {
+	// TODO: DH implement me
+	return 0
+}

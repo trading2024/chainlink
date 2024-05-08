@@ -516,6 +516,50 @@ func TestUnit_NodeLifecycle_aliveLoop(t *testing.T) {
 			return float64(expectedBlock) == m.Gauge.GetValue() && node.getLatestChainInfo().FinalizedBlockNumber == expectedBlock
 		})
 	})
+	setSilentHeadsSub := func(rpc *mockNodeClient[types.ID, Head]) {
+		sub := mocks.NewSubscription(t)
+		sub.On("Err").Return((<-chan error)(nil))
+		sub.On("Unsubscribe").Once()
+		rpc.On("SubscribeNewHead", mock.Anything, mock.Anything).Return(sub, nil).Once()
+		rpc.On("SetAliveLoopSub", sub).Once()
+	}
+	t.Run("if FT is enabled and lagging behind on latest finalized block, transitions to finalizedBlockOutOfSync", func(t *testing.T) {
+		t.Parallel()
+		rpc := newMockNodeClient[types.ID, Head](t)
+		setSilentHeadsSub(rpc)
+		lggr, observedLogs := logger.TestObserved(t, zap.DebugLevel)
+		node := newDialedNode(t, testNodeOpts{
+			chainConfig: clientMocks.ChainConfig{
+				IsFinalityTagEnabled: true, // FT
+			},
+			config: testNodeConfig{
+				finalizedBlockPollInterval: tests.TestInterval,
+			},
+			rpc:     rpc,
+			chainID: big.NewInt(1),
+			lggr:    lggr,
+		})
+		defer func() { assert.NoError(t, node.close()) }()
+		poolInfo := newMockPoolChainInfoProvider(t)
+		const highestBlock = 100
+		poolInfo.On("HighestChainInfo").Return(ChainInfo{
+			FinalizedBlockNumber: highestBlock,
+		}).Once()
+		rpc.On("LatestFinalizedBlock", mock.Anything).Return(head{BlockNumber: highestBlock - 1}.ToMockHead(t), nil).Once()
+		node.SetPoolChainInfoProvider(poolInfo)
+		// tries to redial in finalizedOutOfSync
+		rpc.On("Dial", mock.Anything).Return(errors.New("failed to dial")).Run(func(_ mock.Arguments) {
+			assert.Equal(t, nodeStateFinalizedBlockOutOfSync, node.State())
+		}).Once()
+		// disconnects all on transfer to unreachable or outOfSync
+		rpc.On("DisconnectAll").Maybe()
+		// might be called in unreachable loop
+		rpc.On("Dial", mock.Anything).Run(func(_ mock.Arguments) {
+			require.Equal(t, nodeStateUnreachable, node.State())
+		}).Return(errors.New("failed to dial")).Maybe()
+		node.declareAlive()
+		tests.AssertLogEventually(t, observedLogs, "RPC is lagging behind on the latest finalized block")
+	})
 }
 
 type head struct {

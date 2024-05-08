@@ -52,6 +52,7 @@ type NodeConfig interface {
 
 type ChainConfig interface {
 	NodeNoNewHeadsThreshold() time.Duration
+	NodeNoNewFinalizedHeadsThreshold() time.Duration
 	FinalityDepth() uint32
 	FinalityTagEnabled() bool
 	ChainType() commonconfig.ChainType
@@ -255,7 +256,7 @@ func (n *node[CHAIN_ID, HEAD, RPC]) verifyChainID(callerCtx context.Context, lgg
 		// The node is already closed, and any subsequent transition is invalid.
 		// To make spotting such transitions a bit easier, return the invalid node state.
 		return nodeStateLen
-	case nodeStateDialed, nodeStateOutOfSync, nodeStateInvalidChainID, nodeStateSyncing:
+	case nodeStateDialed, nodeStateOutOfSync, nodeStateInvalidChainID, nodeStateSyncing, nodeStateFinalizedBlockOutOfSync:
 	default:
 		panic(fmt.Sprintf("cannot verify node in state %v", st))
 	}
