@@ -60,6 +60,14 @@ var ErrProfileTooLong = errors.New("requested profile duration too large")
 func initLocalSubCmds(s *Shell, safe bool) []cli.Command {
 	return []cli.Command{
 		{
+			Name:  "setup",
+			Flags: []cli.Flag{
+				//TODO password and vrfpassword?
+			},
+			Usage:  "Setup a Chainlink node",
+			Action: s.Setup,
+		},
+		{
 			Name:    "start",
 			Aliases: []string{"node", "n"},
 			Flags: []cli.Flag{
@@ -276,6 +284,21 @@ func initLocalSubCmds(s *Shell, safe bool) []cli.Command {
 
 // ownerPermsMask are the file permission bits reserved for owner.
 const ownerPermsMask = os.FileMode(0o700)
+
+// Setup Chainlink core.
+func (s *Shell) Setup(c *cli.Context) error {
+	ctx := s.ctx()
+	ctx := s.ctx()
+	lggr := logger.Sugared(s.Logger.Named("Setup"))
+
+	//TODO password flags?
+
+	//TODO secrets?
+
+	//TODO imports too?
+
+	//TODO do the init
+}
 
 // RunNode starts the Chainlink core.
 func (s *Shell) RunNode(c *cli.Context) error {
