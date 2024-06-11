@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/codec"
+	"github.com/smartcontractkit/chainlink-common/pkg/types/query/primitives"
 
 	clcommontypes "github.com/smartcontractkit/chainlink-common/pkg/types"
 	. "github.com/smartcontractkit/chainlink-common/pkg/types/interfacetests" //nolint common practice to import test mods with .
@@ -75,7 +76,7 @@ func TestChainReaderInterfaceTests(t *testing.T) {
 		rOutput := reflect.Indirect(reflect.ValueOf(output))
 
 		require.Eventually(t, func() bool {
-			return cr.GetLatestValue(ctx, AnyContractName, triggerWithDynamicTopic, input, output) == nil
+			return cr.GetLatestValue(ctx, AnyContractName, triggerWithDynamicTopic, input, output, primitives.Finalized) == nil
 		}, it.MaxWaitTimeForEvents(), time.Millisecond*10)
 
 		assert.Equal(t, &anyString, rOutput.FieldByName("Field").Interface())
@@ -101,7 +102,7 @@ func TestChainReaderInterfaceTests(t *testing.T) {
 		params := struct{ Field1, Field2, Field3 int32 }{Field1: 1, Field2: 2, Field3: 3}
 
 		require.Eventually(t, func() bool {
-			return cr.GetLatestValue(ctx, AnyContractName, triggerWithAllTopics, params, &latest) == nil
+			return cr.GetLatestValue(ctx, AnyContractName, triggerWithAllTopics, params, &latest, primitives.Finalized) == nil
 		}, it.MaxWaitTimeForEvents(), time.Millisecond*10)
 
 		assert.Equal(t, int32(1), latest.Field1)
@@ -306,8 +307,8 @@ func (it *chainReaderInterfaceTester) TriggerEvent(t *testing.T, testStruct *Tes
 
 func (it *chainReaderInterfaceTester) GetBindings(_ *testing.T) []clcommontypes.BoundContract {
 	return []clcommontypes.BoundContract{
-		{Name: AnyContractName, Address: it.address, Pending: true},
-		{Name: AnySecondContractName, Address: it.address2, Pending: true},
+		{Name: AnyContractName, Address: it.address},
+		{Name: AnySecondContractName, Address: it.address2},
 	}
 }
 

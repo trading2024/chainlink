@@ -27,7 +27,6 @@ type eventBinding struct {
 	lp             logpoller.LogPoller
 	hash           common.Hash
 	codec          commontypes.RemoteCodec
-	pending        bool
 	bound          bool
 	registerCalled bool
 	lock           sync.Mutex
@@ -88,21 +87,18 @@ func (e *eventBinding) Unregister(ctx context.Context) error {
 	return nil
 }
 
-func (e *eventBinding) GetLatestValue(ctx context.Context, params, into any) error {
+func (e *eventBinding) GetLatestValue(ctx context.Context, params, into any, confidenceLevel primitives.ConfidenceLevel) error {
 	if !e.bound {
 		return fmt.Errorf("%w: event not bound", commontypes.ErrInvalidType)
 	}
 
-	confs := evmtypes.Finalized
-	if e.pending {
-		confs = evmtypes.Unconfirmed
-	}
+	confirmations := e.confirmationsFrom(confidenceLevel)
 
 	if len(e.inputInfo.Args()) == 0 {
-		return e.getLatestValueWithoutFilters(ctx, confs, into)
+		return e.getLatestValueWithoutFilters(ctx, confirmations, into)
 	}
 
-	return e.getLatestValueWithFilters(ctx, confs, params, into)
+	return e.getLatestValueWithFilters(ctx, confirmations, params, into)
 }
 
 func (e *eventBinding) QueryKey(ctx context.Context, filter query.KeyFilter, limitAndSort query.LimitAndSort, sequenceDataType any) ([]commontypes.Sequence, error) {
@@ -141,7 +137,6 @@ func (e *eventBinding) Bind(ctx context.Context, binding commontypes.BoundContra
 	}
 
 	e.address = common.HexToAddress(binding.Address)
-	e.pending = binding.Pending
 	e.bound = true
 
 	if e.registerCalled {

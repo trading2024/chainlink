@@ -5,10 +5,11 @@ import (
 
 	commontypes "github.com/smartcontractkit/chainlink-common/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/types/query"
+	"github.com/smartcontractkit/chainlink-common/pkg/types/query/primitives"
 )
 
 type readBinding interface {
-	GetLatestValue(ctx context.Context, params, returnVal any) error
+	GetLatestValue(ctx context.Context, params, returnVal any, confidenceLevel primitives.ConfidenceLevel) error
 	QueryKey(ctx context.Context, filter query.KeyFilter, limitAndSort query.LimitAndSort, sequenceDataType any) ([]commontypes.Sequence, error)
 	Bind(ctx context.Context, binding commontypes.BoundContract) error
 	SetCodec(codec commontypes.RemoteCodec)

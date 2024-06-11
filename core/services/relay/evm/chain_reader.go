@@ -75,13 +75,13 @@ func (cr *chainReader) Name() string { return cr.lggr.Name() }
 
 var _ commontypes.ContractTypeProvider = &chainReader{}
 
-func (cr *chainReader) GetLatestValue(ctx context.Context, contractName, method string, params any, returnVal any) error {
+func (cr *chainReader) GetLatestValue(ctx context.Context, contractName, method string, params any, returnVal any, confidenceLevel primitives.ConfidenceLevel) error {
 	b, err := cr.contractBindings.GetReadBinding(contractName, method)
 	if err != nil {
 		return err
 	}
 
-	return b.GetLatestValue(ctx, params, returnVal)
+	return b.GetLatestValue(ctx, params, returnVal, confidenceLevel)
 }
 
 func (cr *chainReader) Bind(ctx context.Context, bindings []commontypes.BoundContract) error {
@@ -172,10 +172,16 @@ func (cr *chainReader) addMethod(
 			chainReaderDefinition.ChainSpecificName)
 	}
 
+	confirmations, err := confirmationsFromConfig(chainReaderDefinition.ConfidenceConfirmations)
+	if err != nil {
+		return err
+	}
+
 	cr.contractBindings.AddReadBinding(contractName, methodName, &methodBinding{
-		contractName: contractName,
-		method:       methodName,
-		client:       cr.client,
+		contractName:         contractName,
+		method:               methodName,
+		client:               cr.client,
+		confirmationsMapping: confirmations,
 	})
 
 	if err := cr.addEncoderDef(contractName, methodName, method.Inputs, method.ID, chainReaderDefinition); err != nil {
