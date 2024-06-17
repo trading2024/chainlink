@@ -1,4 +1,4 @@
-package remote
+package trigger
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	commoncap "github.com/smartcontractkit/chainlink-common/pkg/capabilities"
 	"github.com/smartcontractkit/chainlink-common/pkg/capabilities/pb"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
+	"github.com/smartcontractkit/chainlink/v2/core/capabilities/remote"
 	"github.com/smartcontractkit/chainlink/v2/core/capabilities/remote/types"
 	"github.com/smartcontractkit/chainlink/v2/core/logger"
 	p2ptypes "github.com/smartcontractkit/chainlink/v2/core/services/p2p/types"
@@ -58,7 +59,7 @@ const defaultSendChannelBufferSize = 1000
 func NewTriggerSubscriber(config *types.RemoteTriggerConfig, capInfo commoncap.CapabilityInfo, capDonInfo capabilities.DON, localDonInfo capabilities.DON, dispatcher types.Dispatcher, aggregator types.Aggregator, lggr logger.Logger) *triggerSubscriber {
 	if aggregator == nil {
 		lggr.Warnw("no aggregator provided, using default MODE aggregator", "capabilityId", capInfo.ID)
-		aggregator = NewDefaultModeAggregator(uint32(capDonInfo.F + 1))
+		aggregator = remote.NewDefaultModeAggregator(uint32(capDonInfo.F + 1))
 	}
 	config.ApplyDefaults()
 	capDonMembers := make(map[p2ptypes.PeerID]struct{})
@@ -169,7 +170,7 @@ func (s *triggerSubscriber) UnregisterTrigger(ctx context.Context, request commo
 }
 
 func (s *triggerSubscriber) Receive(_ context.Context, msg *types.MessageBody) {
-	sender := ToPeerID(msg.Sender)
+	sender := remote.ToPeerID(msg.Sender)
 	if _, found := s.capDonMembers[sender]; !found {
 		s.lggr.Errorw("received message from unexpected node", "capabilityId", s.capInfo.ID, "sender", sender)
 		return

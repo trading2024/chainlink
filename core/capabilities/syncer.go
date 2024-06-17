@@ -17,11 +17,11 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/capabilities/triggers"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 	"github.com/smartcontractkit/chainlink-common/pkg/types/core"
+	"github.com/smartcontractkit/chainlink/v2/core/capabilities/remote/trigger"
 
 	"github.com/smartcontractkit/libocr/ragep2p"
 	ragetypes "github.com/smartcontractkit/libocr/ragep2p/types"
 
-	"github.com/smartcontractkit/chainlink/v2/core/capabilities/remote"
 	"github.com/smartcontractkit/chainlink/v2/core/capabilities/remote/target"
 	remotetypes "github.com/smartcontractkit/chainlink/v2/core/capabilities/remote/types"
 	"github.com/smartcontractkit/chainlink/v2/core/capabilities/streams"
@@ -351,7 +351,7 @@ func (s *registrySyncer) addRemoteCapabilities(ctx context.Context, myDON kcr.Ca
 				// payloads. As a workaround, we validate the signatures.
 				// When this is solved, we can move to a generic aggregator
 				// and remove this.
-				triggerCap := remote.NewTriggerSubscriber(
+				triggerCap := trigger.NewTriggerSubscriber(
 					cfg,
 					info,
 					*toDONInfo(remoteDON),
@@ -470,7 +470,7 @@ func (s *registrySyncer) enableExternalAccess(ctx context.Context, myPeerID p2pt
 				if err != nil {
 					return nil, err
 				}
-				publisher := remote.NewTriggerPublisher(
+				publisher := trigger.NewTriggerPublisher(
 					cfg,
 					capability.(capabilities.TriggerCapability),
 					info,

@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/smartcontractkit/chainlink/v2/core/capabilities/remote/trigger"
 	ragetypes "github.com/smartcontractkit/libocr/ragep2p/types"
 
 	commoncap "github.com/smartcontractkit/chainlink-common/pkg/capabilities"
@@ -89,7 +90,7 @@ func TestToPeerID(t *testing.T) {
 }
 
 func TestDefaultModeAggregator_Aggregate(t *testing.T) {
-	val, err := values.Wrap(triggerEvent1)
+	val, err := values.Wrap(trigger.triggerEvent1)
 	require.NoError(t, err)
 	capResponse1 := commoncap.CapabilityResponse{
 		Value: val,
@@ -98,7 +99,7 @@ func TestDefaultModeAggregator_Aggregate(t *testing.T) {
 	marshaled1, err := pb.MarshalCapabilityResponse(capResponse1)
 	require.NoError(t, err)
 
-	val2, err := values.Wrap(triggerEvent2)
+	val2, err := values.Wrap(trigger.triggerEvent2)
 	require.NoError(t, err)
 	capResponse2 := commoncap.CapabilityResponse{
 		Value: val2,
