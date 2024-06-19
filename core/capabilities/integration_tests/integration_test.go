@@ -3,11 +3,9 @@ package integration_tests
 import (
 	"context"
 	"crypto/rand"
-	"errors"
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/mr-tron/base58"
 	"github.com/stretchr/testify/require"
 
@@ -32,16 +30,15 @@ type consensusFactory = func(t *testing.T) commoncap.ConsensusCapability
 func Test_HardcodedWorkflow_DonTopologies(t *testing.T) {
 	ctx := testutils.Context(t)
 
-	// should use the mock trigger and targets from engine test and get that working across nodes
-	// the test will follow pretty much the same pattern as the engine test, just in a more fleshed out
-	// env
-
 	workflowDonNodes := createDons(ctx, t, []triggerFactory{mockMercuryTrigger},
 		[]targetFactory{mockPolygonTestnetMumbaiTarget},
 		[]consensusFactory{mockConsensus}, 10, 9, 10, 9)
 	for _, node := range workflowDonNodes {
 		AddWorkflowJob(t, node)
 	}
+
+	time.Sleep(10 * time.Minute)
+
 }
 
 func createDons(ctx context.Context, t *testing.T, triggerFactories []triggerFactory,
@@ -171,90 +168,6 @@ func createDons(ctx context.Context, t *testing.T, triggerFactories []triggerFac
 	servicetest.Run(t, broker)
 
 	return workflowNodes
-}
-
-type TestTriggerCapability struct {
-	responseCh chan commoncap.CapabilityResponse
-	registered map[string]chan commoncap.CapabilityResponse
-}
-
-func newTestTriggerCapability() *TestTriggerCapability {
-	return &TestTriggerCapability{
-		responseCh: make(chan commoncap.CapabilityResponse, 1),
-		registered: make(map[string]chan commoncap.CapabilityResponse),
-	}
-}
-
-func (t TestTriggerCapability) Info(ctx context.Context) (commoncap.CapabilityInfo, error) {
-	return commoncap.CapabilityInfo{}, nil
-}
-
-func (t TestTriggerCapability) RegisterTrigger(ctx context.Context, request commoncap.CapabilityRequest) (<-chan commoncap.CapabilityResponse, error) {
-	if _, ok := t.registered[request.Metadata.WorkflowExecutionID]; ok {
-		return nil, errors.New("already registered")
-	}
-
-	t.registered[request.Metadata.WorkflowExecutionID] = make(chan commoncap.CapabilityResponse, 1)
-
-	return t.registered[request.Metadata.WorkflowExecutionID], nil
-}
-
-func (t TestTriggerCapability) UnregisterTrigger(ctx context.Context, request commoncap.CapabilityRequest) error {
-	delete(t.registered, request.Metadata.WorkflowExecutionID)
-	return nil
-}
-
-type abstractTestCapability struct {
-}
-
-func (t abstractTestCapability) Info(ctx context.Context) (commoncap.CapabilityInfo, error) {
-	return commoncap.CapabilityInfo{}, nil
-}
-
-func (t abstractTestCapability) RegisterToWorkflow(ctx context.Context, request commoncap.RegisterToWorkflowRequest) error {
-	return nil
-}
-
-func (t abstractTestCapability) UnregisterFromWorkflow(ctx context.Context, request commoncap.UnregisterFromWorkflowRequest) error {
-	return nil
-}
-
-type TestTargetCapability struct {
-	abstractTestCapability
-}
-
-func (t TestTargetCapability) Execute(ctx context.Context, request commoncap.CapabilityRequest) (<-chan commoncap.CapabilityResponse, error) {
-	ch := make(chan commoncap.CapabilityResponse, 1)
-
-	value := request.Inputs.Underlying["executeValue1"]
-
-	ch <- commoncap.CapabilityResponse{
-		Value: value,
-	}
-
-	return ch, nil
-}
-
-type TestErrorCapability struct {
-	abstractTestCapability
-}
-
-func (t TestErrorCapability) Execute(ctx context.Context, request commoncap.CapabilityRequest) (<-chan commoncap.CapabilityResponse, error) {
-	return nil, errors.New("an error")
-}
-
-type TestRandomErrorCapability struct {
-	abstractTestCapability
-}
-
-func (t TestRandomErrorCapability) Execute(ctx context.Context, request commoncap.CapabilityRequest) (<-chan commoncap.CapabilityResponse, error) {
-	return nil, errors.New(uuid.New().String())
-}
-
-func NewP2PPeerID(t *testing.T) p2ptypes.PeerID {
-	id := p2ptypes.PeerID{}
-	require.NoError(t, id.UnmarshalText([]byte(NewPeerID())))
-	return id
 }
 
 func NewPeerID() string {
