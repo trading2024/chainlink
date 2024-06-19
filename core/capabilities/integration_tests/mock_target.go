@@ -8,7 +8,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/values"
 )
 
-func mockPolygonTestnetMumbaiTarget(_ *testing.T) capabilities.TargetCapability {
+func mockEthereumTestnetSepoliaTarget(_ *testing.T, reportsSink chan capabilities.CapabilityResponse) capabilities.TargetCapability {
 	return newMockCapability(
 		capabilities.MustNewCapabilityInfo(
 			"write_ethereum-testnet-sepolia@1.0.0",
@@ -17,9 +17,13 @@ func mockPolygonTestnetMumbaiTarget(_ *testing.T) capabilities.TargetCapability 
 		),
 		func(req capabilities.CapabilityRequest) (capabilities.CapabilityResponse, error) {
 			m := req.Inputs.Underlying["report"].(*values.Map)
-			return capabilities.CapabilityResponse{
+			resp := capabilities.CapabilityResponse{
 				Value: m,
-			}, nil
+			}
+
+			reportsSink <- resp
+
+			return resp, nil
 		},
 	)
 }

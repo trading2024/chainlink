@@ -6,6 +6,8 @@ import (
 	sync "sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/smartcontractkit/chainlink-common/pkg/capabilities"
 	commoncap "github.com/smartcontractkit/chainlink-common/pkg/capabilities"
 	"github.com/smartcontractkit/chainlink-common/pkg/capabilities/pb"
@@ -24,6 +26,7 @@ import (
 //
 // TriggerSubscriber communicates with corresponding TriggerReceivers on remote nodes.
 type triggerSubscriber struct {
+	id                  string
 	config              *types.RemoteTriggerConfig
 	capInfo             commoncap.CapabilityInfo
 	capDonInfo          capabilities.DON
@@ -67,6 +70,7 @@ func NewTriggerSubscriber(config *types.RemoteTriggerConfig, capInfo commoncap.C
 		capDonMembers[member] = struct{}{}
 	}
 	return &triggerSubscriber{
+		id:                  uuid.New().String(),
 		config:              config,
 		capInfo:             capInfo,
 		capDonInfo:          capDonInfo,

@@ -10,6 +10,8 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 	remotetypes "github.com/smartcontractkit/chainlink/v2/core/capabilities/remote/types"
 	p2ptypes "github.com/smartcontractkit/chainlink/v2/core/services/p2p/types"
+
+	"github.com/golang/protobuf/proto"
 )
 
 type receiverKey struct {
@@ -127,11 +129,13 @@ type nodeDispatcher struct {
 }
 
 func (t *nodeDispatcher) Send(peerID p2ptypes.PeerID, msgBody *remotetypes.MessageBody) error {
-	msgBody.Version = 1
-	msgBody.Sender = t.callerPeerID[:]
-	msgBody.Receiver = peerID[:]
-	msgBody.Timestamp = time.Now().UnixMilli()
-	t.broker.Send(msgBody)
+
+	clonedMsg := proto.Clone(msgBody).(*remotetypes.MessageBody)
+	clonedMsg.Version = 1
+	clonedMsg.Sender = t.callerPeerID[:]
+	clonedMsg.Receiver = peerID[:]
+	clonedMsg.Timestamp = time.Now().UnixMilli()
+	t.broker.Send(clonedMsg)
 	return nil
 }
 

@@ -16,28 +16,43 @@ import (
 	"github.com/smartcontractkit/chainlink/v2/core/capabilities/remote/trigger"
 	remotetypes "github.com/smartcontractkit/chainlink/v2/core/capabilities/remote/types"
 	"github.com/smartcontractkit/chainlink/v2/core/internal/cltest"
+	"github.com/smartcontractkit/chainlink/v2/core/internal/cltest/heavyweight"
 	"github.com/smartcontractkit/chainlink/v2/core/internal/testutils"
-	"github.com/smartcontractkit/chainlink/v2/core/internal/testutils/configtest"
 	"github.com/smartcontractkit/chainlink/v2/core/logger"
+	"github.com/smartcontractkit/chainlink/v2/core/services/chainlink"
 	p2ptypes "github.com/smartcontractkit/chainlink/v2/core/services/p2p/types"
 )
 
 type triggerFactory = func(t *testing.T) commoncap.TriggerCapability
-type targetFactory = func(t *testing.T) commoncap.TargetCapability
+type targetFactory = func(t *testing.T, reportsSink chan commoncap.CapabilityResponse) commoncap.TargetCapability
 
 type consensusFactory = func(t *testing.T) commoncap.ConsensusCapability
 
 func Test_HardcodedWorkflow_DonTopologies(t *testing.T) {
 	ctx := testutils.Context(t)
 
+	reportsSink := make(chan commoncap.CapabilityResponse, 1000)
+
+	numWorkflowPeers := 3
+	workflowDonF := uint8(1)
+	numCapabilityPeers := 3
+	capabilityDonF := uint8(1)
+
 	workflowDonNodes := createDons(ctx, t, []triggerFactory{mockMercuryTrigger},
-		[]targetFactory{mockPolygonTestnetMumbaiTarget},
-		[]consensusFactory{mockConsensus}, 10, 9, 10, 9)
+		[]targetFactory{mockEthereumTestnetSepoliaTarget},
+		[]consensusFactory{mockConsensus}, numWorkflowPeers, workflowDonF, numCapabilityPeers, capabilityDonF,
+		reportsSink)
 	for _, node := range workflowDonNodes {
 		AddWorkflowJob(t, node)
 	}
 
-	time.Sleep(10 * time.Minute)
+	reportCount := 0
+	for range reportsSink {
+		reportCount++
+		if reportCount == numWorkflowPeers {
+			break
+		}
+	}
 
 }
 
@@ -45,7 +60,8 @@ func createDons(ctx context.Context, t *testing.T, triggerFactories []triggerFac
 	targetFactories []targetFactory,
 	consensusFactories []consensusFactory,
 	numWorkflowPeers int, workflowDonF uint8,
-	numCapabilityPeers int, capabilityDonF uint8) []*cltest.TestApplication {
+	numCapabilityPeers int, capabilityDonF uint8,
+	reportsSink chan commoncap.CapabilityResponse) []*cltest.TestApplication {
 	lggr := logger.TestLogger(t)
 
 	capabilityPeers := make([]p2ptypes.PeerID, numCapabilityPeers)
@@ -95,13 +111,14 @@ func createDons(ctx context.Context, t *testing.T, triggerFactories []triggerFac
 
 			cfg := &remotetypes.RemoteTriggerConfig{}
 			cfg.ApplyDefaults()
+			cfg.MinResponsesToAggregate = uint32(workflowDonInfo.F + 1)
 			triggerPublisher := trigger.NewTriggerPublisher(cfg, trig, capInfo, capDonInfo, workflowDONs, capabilityDispatcher, lggr)
 			servicetest.Run(t, triggerPublisher)
 			broker.RegisterReceiverNode(capabilityPeer, capInfo.ID, capInfo.DON.ID, triggerPublisher)
 		}
 
 		for _, factory := range targetFactories {
-			cb := factory(t)
+			cb := factory(t, reportsSink)
 			capInfo, err := cb.Info(ctx)
 			require.NoError(t, err)
 			capInfo.DON = &capDonInfo
@@ -126,6 +143,8 @@ func createDons(ctx context.Context, t *testing.T, triggerFactories []triggerFac
 
 			cfg := &remotetypes.RemoteTriggerConfig{}
 			cfg.ApplyDefaults()
+			cfg.MinResponsesToAggregate = uint32(capDonInfo.F + 1)
+
 			triggerSubscriber := trigger.NewTriggerSubscriber(cfg, capInfo, capDonInfo, workflowDonInfo, workflowPeerDispatcher, nil, lggr)
 			servicetest.Run(t, triggerSubscriber)
 			broker.RegisterReceiverNode(workflowPeers[i], capInfo.ID, capInfo.DON.ID, triggerSubscriber)
@@ -134,7 +153,7 @@ func createDons(ctx context.Context, t *testing.T, triggerFactories []triggerFac
 		}
 
 		for _, targetFactory := range targetFactories {
-			targ := targetFactory(t)
+			targ := targetFactory(t, reportsSink)
 			capInfo, err := targ.Info(ctx)
 			require.NoError(t, err)
 			capInfo.DON = &capDonInfo
@@ -159,8 +178,7 @@ func createDons(ctx context.Context, t *testing.T, triggerFactories []triggerFac
 			CapabilityDONs: []commoncap.DON{capDonInfo},
 		}
 
-		config := configtest.NewGeneralConfig(t, nil)
-		workflowNode := cltest.NewApplicationWithConfig(t, config, capabilityRegistry, nodeInfo)
+		workflowNode := StartNewNode(t, capabilityRegistry, nodeInfo)
 		require.NoError(t, workflowNode.Start(testutils.Context(t)))
 		workflowNodes[i] = workflowNode
 	}
@@ -168,6 +186,15 @@ func createDons(ctx context.Context, t *testing.T, triggerFactories []triggerFac
 	servicetest.Run(t, broker)
 
 	return workflowNodes
+}
+
+func StartNewNode(
+	t *testing.T, capabilityRegistry *capabilities.Registry, nodeInfo commoncap.Node) *cltest.TestApplication {
+	config, _ := heavyweight.FullTestDBV2(t, func(c *chainlink.Config, s *chainlink.Secrets) {})
+
+	app := cltest.NewApplicationWithConfig(t, config, capabilityRegistry, nodeInfo)
+
+	return app
 }
 
 func NewPeerID() string {

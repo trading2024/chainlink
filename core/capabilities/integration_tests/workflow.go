@@ -49,6 +49,8 @@ targets:
       address: "0x54e220867af6683aE6DcBF535B4f952cB5116510"
       params: ["$(report)"]
       abi: "receive(report bytes)"
+      deltaStage: 2s
+      schedule: allAtOnce
 `
 
 func AddWorkflowJob(t *testing.T, app *cltest.TestApplication) {

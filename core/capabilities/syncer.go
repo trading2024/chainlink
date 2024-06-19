@@ -340,7 +340,10 @@ func (s *registrySyncer) addRemoteCapabilities(ctx context.Context, myDON kcr.Ca
 					s.lggr,
 				)
 				cfg := &remotetypes.RemoteTriggerConfig{}
+
+				// TODO the min response to aggregate set in the below call will be 0, should be F + 1 ?
 				cfg.ApplyDefaults()
+
 				err = proto.Unmarshal(c.Config, cfg)
 				if err != nil {
 					return nil, err
