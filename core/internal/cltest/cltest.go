@@ -35,6 +35,7 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
+	"github.com/smartcontractkit/chainlink/v2/core/capabilities"
 	ocrtypes "github.com/smartcontractkit/libocr/offchainreporting/types"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/loop"
@@ -318,6 +319,14 @@ func NewApplicationWithConfig(t testing.TB, cfg chainlink.GeneralConfig, flagsAn
 		auditLogger = audit.NoopLogger
 	}
 
+	var capabilitiesRegistry *capabilities.Registry
+	for _, dep := range flagsAndDeps {
+		capabilitiesRegistry, _ = dep.(*capabilities.Registry)
+		if capabilitiesRegistry != nil {
+			break
+		}
+	}
+
 	url := cfg.Database().URL()
 	db, err := pg.NewConnection(url.String(), cfg.Database().Dialect(), cfg.Database())
 	require.NoError(t, err)
@@ -431,6 +440,7 @@ func NewApplicationWithConfig(t testing.TB, cfg chainlink.GeneralConfig, flagsAn
 		SecretGenerator:            MockSecretGenerator{},
 		LoopRegistry:               plugins.NewLoopRegistry(lggr, nil),
 		MercuryPool:                mercuryPool,
+		CapabilitiesRegistry:       capabilitiesRegistry,
 	})
 	require.NoError(t, err)
 	app := appInstance.(*chainlink.ChainlinkApplication)

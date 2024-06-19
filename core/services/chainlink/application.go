@@ -182,6 +182,7 @@ type ApplicationOpts struct {
 	GRPCOpts                   loop.GRPCOpts
 	MercuryPool                wsrpc.Pool
 	CapabilitiesRegistry       coretypes.CapabilitiesRegistry
+	CapabilitiesNode           *pkgcapabilities.Node
 }
 
 // NewApplication initializes a new store if one is not already
@@ -201,13 +202,23 @@ func NewApplication(opts ApplicationOpts) (Application, error) {
 	restrictedHTTPClient := opts.RestrictedHTTPClient
 	unrestrictedHTTPClient := opts.UnrestrictedHTTPClient
 
-	if opts.CapabilitiesRegistry == nil { // for tests only, in prod Registry is always set at this point
+	//	here - stub out the capabilities registry - also - get local node will need to be stubbed out
+
+	//	the capabilities returned can use the simple dispatcher for now and can then worry about syncer etc later on
+
+	//	for now - a workflow don, a capability don, load up a simple workflow to invoke the trigger.  That will good starting aim
+
+	if opts.CapabilitiesRegistry == nil {
+		// for tests only, in prod Registry should always be set at this point
 		opts.CapabilitiesRegistry = capabilities.NewRegistry(globalLogger)
 	}
 
-	var externalPeerWrapper p2ptypes.PeerWrapper
 	var getLocalNode func(ctx context.Context) (pkgcapabilities.Node, error)
+
+	var externalPeerWrapper p2ptypes.PeerWrapper
+
 	if cfg.Capabilities().Peering().Enabled() {
+
 		externalPeer := externalp2p.NewExternalPeerWrapper(keyStore.P2P(), cfg.Capabilities().Peering(), opts.DS, globalLogger)
 		signer := externalPeer
 		externalPeerWrapper = externalPeer
@@ -220,31 +231,38 @@ func NewApplication(opts ApplicationOpts) (Application, error) {
 		}
 
 		dispatcher := remote.NewDispatcher(externalPeerWrapper, signer, opts.CapabilitiesRegistry, globalLogger)
+		srvcs = append(srvcs, dispatcher)
 
-		rid := cfg.Capabilities().ExternalRegistry().RelayID()
-		registryAddress := cfg.Capabilities().ExternalRegistry().Address()
-		relayer, err := relayerChainInterops.Get(rid)
-		if err != nil {
-			return nil, fmt.Errorf("could not fetch relayer %s configured for capabilities registry: %w", rid, err)
+		if opts.CapabilitiesNode != nil {
+			getLocalNode = func(ctx context.Context) (pkgcapabilities.Node, error) {
+				return *opts.CapabilitiesNode, nil
+			}
+		} else {
+
+			rid := cfg.Capabilities().ExternalRegistry().RelayID()
+			registryAddress := cfg.Capabilities().ExternalRegistry().Address()
+			relayer, err := relayerChainInterops.Get(rid)
+			if err != nil {
+				return nil, fmt.Errorf("could not fetch relayer %s configured for capabilities registry: %w", rid, err)
+			}
+
+			registrySyncer, err := capabilities.NewRegistrySyncer(
+				externalPeerWrapper,
+				opts.CapabilitiesRegistry,
+				dispatcher,
+				globalLogger,
+				networkSetup,
+				relayer,
+				registryAddress,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("could not configure syncer: %w", err)
+			}
+
+			getLocalNode = registrySyncer.LocalNode
+			srvcs = append(srvcs, registrySyncer)
 		}
-
-		registrySyncer, err := capabilities.NewRegistrySyncer(
-			externalPeerWrapper,
-			opts.CapabilitiesRegistry,
-			dispatcher,
-			globalLogger,
-			networkSetup,
-			relayer,
-			registryAddress,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("could not configure syncer: %w", err)
-		}
-
-		getLocalNode = registrySyncer.LocalNode
-		srvcs = append(srvcs, dispatcher, registrySyncer)
 	}
-
 	// LOOPs can be created as options, in the  case of LOOP relayers, or
 	// as OCR2 job implementations, in the case of Median today.
 	// We will have a non-nil registry here in LOOP relayers are being used, otherwise
