@@ -191,7 +191,10 @@ func createDons(ctx context.Context, t *testing.T, triggerFactories []triggerFac
 
 func StartNewNode(
 	t *testing.T, capabilityRegistry *capabilities.Registry, nodeInfo commoncap.Node) *cltest.TestApplication {
-	config, _ := heavyweight.FullTestDBV2(t, func(c *chainlink.Config, s *chainlink.Secrets) {})
+	config, _ := heavyweight.FullTestDBV2(t, func(c *chainlink.Config, s *chainlink.Secrets) {
+		//c.Capabilities.ExternalRegistry.ChainID = ptr("1337")
+		//c.Capabilities.Peering.V2.Enabled = ptr(true)
+	})
 
 	app := cltest.NewApplicationWithConfig(t, config, capabilityRegistry, nodeInfo)
 
@@ -213,3 +216,5 @@ func NewPeerID() string {
 func libp2pMagic() []byte {
 	return []byte{0x00, 0x24, 0x08, 0x01, 0x12, 0x20}
 }
+
+func ptr[T any](t T) *T { return &t }
