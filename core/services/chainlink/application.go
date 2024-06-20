@@ -202,12 +202,6 @@ func NewApplication(opts ApplicationOpts) (Application, error) {
 	restrictedHTTPClient := opts.RestrictedHTTPClient
 	unrestrictedHTTPClient := opts.UnrestrictedHTTPClient
 
-	//	here - stub out the capabilities registry - also - get local node will need to be stubbed out
-
-	//	the capabilities returned can use the simple dispatcher for now and can then worry about syncer etc later on
-
-	//	for now - a workflow don, a capability don, load up a simple workflow to invoke the trigger.  That will good starting aim
-
 	if opts.CapabilitiesRegistry == nil {
 		// for tests only, in prod Registry should always be set at this point
 		opts.CapabilitiesRegistry = capabilities.NewRegistry(globalLogger)

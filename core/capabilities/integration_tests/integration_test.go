@@ -166,7 +166,7 @@ func createDons(ctx context.Context, t *testing.T, triggerFactories []triggerFac
 			require.NoError(t, err)
 		}
 
-		// Consensus capabilities is local to the workflow node
+		// Consensus capability is local to the workflow node
 		for _, consensusFactory := range consensusFactories {
 			consensus := consensusFactory(t)
 			err := capabilityRegistry.Add(ctx, consensus)
