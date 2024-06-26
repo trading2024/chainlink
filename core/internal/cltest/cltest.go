@@ -35,7 +35,9 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
-	"github.com/smartcontractkit/chainlink/v2/core/capabilities"
+	coretypes "github.com/smartcontractkit/chainlink-common/pkg/types/core"
+	types2 "github.com/smartcontractkit/chainlink/v2/core/capabilities/remote/types"
+	p2ptypes "github.com/smartcontractkit/chainlink/v2/core/services/p2p/types"
 	ocrtypes "github.com/smartcontractkit/libocr/offchainreporting/types"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/loop"
@@ -319,10 +321,26 @@ func NewApplicationWithConfig(t testing.TB, cfg chainlink.GeneralConfig, flagsAn
 		auditLogger = audit.NoopLogger
 	}
 
-	var capabilitiesRegistry *capabilities.Registry
+	var capabilitiesRegistry coretypes.CapabilitiesRegistry
 	for _, dep := range flagsAndDeps {
-		capabilitiesRegistry, _ = dep.(*capabilities.Registry)
+		capabilitiesRegistry, _ = dep.(coretypes.CapabilitiesRegistry)
 		if capabilitiesRegistry != nil {
+			break
+		}
+	}
+
+	var dispatcher types2.Dispatcher
+	for _, dep := range flagsAndDeps {
+		dispatcher, _ = dep.(types2.Dispatcher)
+		if dispatcher != nil {
+			break
+		}
+	}
+
+	var peerWrapper p2ptypes.PeerWrapper
+	for _, dep := range flagsAndDeps {
+		peerWrapper, _ = dep.(p2ptypes.PeerWrapper)
+		if peerWrapper != nil {
 			break
 		}
 	}
@@ -441,7 +459,10 @@ func NewApplicationWithConfig(t testing.TB, cfg chainlink.GeneralConfig, flagsAn
 		LoopRegistry:               plugins.NewLoopRegistry(lggr, nil),
 		MercuryPool:                mercuryPool,
 		CapabilitiesRegistry:       capabilitiesRegistry,
+		CapabilitiesDispatcher:     dispatcher,
+		CapabilitiesPeerWrapper:    peerWrapper,
 	})
+
 	require.NoError(t, err)
 	app := appInstance.(*chainlink.ChainlinkApplication)
 	ta := &TestApplication{

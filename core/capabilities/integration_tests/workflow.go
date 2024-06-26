@@ -12,7 +12,7 @@ import (
 
 const hardcodedWorkflow = `
 triggers:
-  - id: "mercury-trigger@1.0.0"
+  - id: "streams-trigger@1.0.0"
     config:
       feedIds:
         - "0x1111111111111111111100000000000000000000000000000000000000000000"

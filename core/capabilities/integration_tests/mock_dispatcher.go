@@ -97,16 +97,18 @@ func (a *testAsyncMessageBroker) NewDispatcherForNode(nodePeerID p2ptypes.PeerID
 	}
 }
 
-func (a *testAsyncMessageBroker) RegisterReceiverNode(nodePeerID p2ptypes.PeerID, capabilityId string, capabilityDonID string, node remotetypes.Receiver) {
+func (a *testAsyncMessageBroker) registerReceiverNode(nodePeerID p2ptypes.PeerID, capabilityId string, capabilityDonID string, node remotetypes.Receiver) {
 	key := receiverKey{
 		peerID:       nodePeerID,
 		capabilityId: capabilityId,
 		donId:        capabilityDonID,
 	}
 
-	if _, ok := a.nodes[key]; ok {
-		panic("capability already registered for peer id")
-	}
+	//	fmt.Printf("registering receiver node: %s %s %s\n", key.peerID, key.capabilityId, key.donId)
+
+	//	if _, ok := a.nodes[key]; ok {
+	//		panic(fmt.Sprintf("capability already registered: %s %s %s", key.peerID, key.capabilityId, key.donId))
+	//	}
 
 	a.nodes[key] = node
 }
@@ -140,6 +142,7 @@ func (t *nodeDispatcher) Send(peerID p2ptypes.PeerID, msgBody *remotetypes.Messa
 }
 
 func (t *nodeDispatcher) SetReceiver(capabilityId string, donId string, receiver remotetypes.Receiver) error {
+	t.broker.(*testAsyncMessageBroker).registerReceiverNode(t.callerPeerID, capabilityId, donId, receiver)
 	return nil
 }
 func (t *nodeDispatcher) RemoveReceiver(capabilityId string, donId string) {}

@@ -26,6 +26,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/jsonserializable"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/mailbox"
 	"github.com/smartcontractkit/chainlink/v2/core/capabilities"
+	types2 "github.com/smartcontractkit/chainlink/v2/core/capabilities/remote/types"
 	"github.com/smartcontractkit/chainlink/v2/core/chains/evm/logpoller"
 	"github.com/smartcontractkit/chainlink/v2/core/services/standardcapabilities"
 	"github.com/smartcontractkit/chainlink/v2/core/static"
@@ -183,6 +184,8 @@ type ApplicationOpts struct {
 	MercuryPool                wsrpc.Pool
 	CapabilitiesRegistry       coretypes.CapabilitiesRegistry
 	CapabilitiesNode           *pkgcapabilities.Node
+	CapabilitiesDispatcher     types2.Dispatcher
+	CapabilitiesPeerWrapper    p2ptypes.PeerWrapper
 }
 
 // NewApplication initializes a new store if one is not already
@@ -213,9 +216,19 @@ func NewApplication(opts ApplicationOpts) (Application, error) {
 
 	if cfg.Capabilities().Peering().Enabled() {
 
-		externalPeer := externalp2p.NewExternalPeerWrapper(keyStore.P2P(), cfg.Capabilities().Peering(), opts.DS, globalLogger)
-		signer := externalPeer
-		externalPeerWrapper = externalPeer
+		var dispatcher types2.Dispatcher
+		if opts.CapabilitiesDispatcher == nil {
+			externalPeer := externalp2p.NewExternalPeerWrapper(keyStore.P2P(), cfg.Capabilities().Peering(), opts.DS, globalLogger)
+			signer := externalPeer
+			externalPeerWrapper = externalPeer
+			remoteDispatcher := remote.NewDispatcher(externalPeerWrapper, signer, opts.CapabilitiesRegistry, globalLogger)
+			srvcs = append(srvcs, remoteDispatcher)
+
+			dispatcher = remoteDispatcher
+		} else {
+			dispatcher = opts.CapabilitiesDispatcher
+			externalPeerWrapper = opts.CapabilitiesPeerWrapper
+		}
 
 		srvcs = append(srvcs, externalPeerWrapper)
 
@@ -223,9 +236,6 @@ func NewApplication(opts ApplicationOpts) (Application, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to create hardcoded Don network setup: %w", err)
 		}
-
-		dispatcher := remote.NewDispatcher(externalPeerWrapper, signer, opts.CapabilitiesRegistry, globalLogger)
-		srvcs = append(srvcs, dispatcher)
 
 		if opts.CapabilitiesNode != nil {
 			getLocalNode = func(ctx context.Context) (pkgcapabilities.Node, error) {
@@ -239,6 +249,8 @@ func NewApplication(opts ApplicationOpts) (Application, error) {
 			if err != nil {
 				return nil, fmt.Errorf("could not fetch relayer %s configured for capabilities registry: %w", rid, err)
 			}
+
+			// so need to setup the registry contract, then the below should be able to read from that
 
 			registrySyncer, err := capabilities.NewRegistrySyncer(
 				externalPeerWrapper,
