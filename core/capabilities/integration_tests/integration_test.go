@@ -170,7 +170,6 @@ func rawReportContext(reportCtx ocrTypes.ReportContext) []byte {
 	return flat
 }
 
-// TODO replace the capability setup in this function with syncer
 func createDons(ctx context.Context, t *testing.T, triggerFactories []triggerFactory,
 	targetFactories []targetFactory,
 	consensusFactories []consensusFactory,
