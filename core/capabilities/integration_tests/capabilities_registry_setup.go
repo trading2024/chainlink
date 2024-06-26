@@ -63,39 +63,7 @@ var (
 				Signer: "0x7Fa21F6f716CFaF8f249564D72Ce727253186C89",
 			}, */
 	}
-	/*
-		triggerDonPeers = []peer{
-			{
-				PeerID: "12D3KooWBaiTbbRwwt2fbNifiL7Ew9tn3vds9AJE3Nf3eaVBX36m",
-				Signer: "0x9CcE7293a4Cc2621b61193135A95928735e4795F",
-			},
-			{
-				PeerID: "12D3KooWS7JSY9fzSfWgbCE1S3W2LNY6ZVpRuun74moVBkKj6utE",
-				Signer: "0x3c775F20bCB2108C1A818741Ce332Bb5fe0dB925",
-			},
-			{
-				PeerID: "12D3KooWMMTDXcWhpVnwrdAer1jnVARTmnr3RyT3v7Djg8ZuoBh9",
-				Signer: "0x50314239e2CF05555ceeD53E7F47eB2A8Eab0dbB",
-			},
-			{
-				PeerID: "12D3KooWGzVXsKxXsF4zLgxSDM8Gzx1ywq2pZef4PrHMKuVg4K3P",
-				Signer: "0xd76A4f98898c3b9A72b244476d7337b50D54BCd8",
-			},
-			{
-				PeerID: "12D3KooWSyjmmzjVtCzwN7bXzZQFmWiJRuVcKBerNjVgL7HdLJBW",
-				Signer: "0x656A873f6895b8a03Fb112dE927d43FA54B2c92A",
-			},
-			{
-				PeerID: "12D3KooWLGz9gzhrNsvyM6XnXS3JRkZoQdEzuAvysovnSChNK5ZK",
-				Signer: "0x5d1e87d87bF2e0cD4Ea64F381a2dbF45e5f0a553",
-			},
-			{
-				PeerID: "12D3KooWAvZnvknFAfSiUYjATyhzEJLTeKvAzpcLELHi4ogM3GET",
-				Signer: "0x91d9b0062265514f012Eb8fABA59372fD9520f56",
-			},
-		}
 
-	*/
 	targetDonPeers = []peer{
 		{
 			PeerID: "12D3KooWJrthXtnPHw7xyHFAxo6NxifYTvc8igKYaA6wRRRqtsMb",
@@ -115,16 +83,6 @@ var (
 		},
 	}
 )
-
-type deployAndInitializeCapabilitiesRegistryCommand struct{}
-
-func NewDeployAndInitializeCapabilitiesRegistryCommand() *deployAndInitializeCapabilitiesRegistryCommand {
-	return &deployAndInitializeCapabilitiesRegistryCommand{}
-}
-
-func (c *deployAndInitializeCapabilitiesRegistryCommand) Name() string {
-	return "deploy-and-initialize-capabilities-registry"
-}
 
 func peerIDToB(peerID string) ([32]byte, error) {
 	var peerIDB ragetypes.PeerID
@@ -179,46 +137,6 @@ func peerToNode(nopID uint32, p peer) (kcr.CapabilitiesRegistryNodeParams, error
 func setupblockchain(t *testing.T, triggerDonPeers []peer) (*backends.SimulatedBackend, common.Address) {
 
 	ctx := testutils.Context(t)
-
-	/*
-
-		ctx := context.Background()
-
-		fs := flag.NewFlagSet(c.Name(), flag.ExitOnError)
-		// create flags for all of the env vars then set the env vars to normalize the interface
-		// this is a bit of a hack but it's the easiest way to make this work
-		ethUrl := fs.String("ethurl", "", "URL of the Ethereum node")
-		chainID := fs.Int64("chainid", 11155111, "chain ID of the Ethereum network to deploy to")
-		accountKey := fs.String("accountkey", "", "private key of the account to deploy from")
-		capabilityRegistryAddress := fs.String("craddress", "", "address of the capability registry")
-
-		err := fs.Parse(args)
-		if err != nil ||
-			*ethUrl == "" || ethUrl == nil ||
-			*chainID == 0 || chainID == nil ||
-			*accountKey == "" || accountKey == nil {
-			fs.Usage()
-			os.Exit(1)
-		}
-
-		os.Setenv("ETH_URL", *ethUrl)
-		os.Setenv("ETH_CHAIN_ID", fmt.Sprintf("%d", *chainID))
-		os.Setenv("ACCOUNT_KEY", *accountKey)
-
-		env := common2.SetupEnv(false)
-
-		var reg *kcr.CapabilitiesRegistry
-		if *capabilityRegistryAddress == "" {
-			reg = deployCapabilitiesRegistry(env)
-		} else {
-			addr := common.HexToAddress(*capabilityRegistryAddress)
-			r, innerErr := kcr.NewCapabilitiesRegistry(addr, env.Ec)
-			if err != nil {
-				panic(innerErr)
-			}
-
-			reg = r
-		} */
 
 	transactOpts := testutils.MustNewSimTransactor(t) // config contract deployer and owner
 	genesisData := core.GenesisAlloc{transactOpts.From: {Balance: assets.Ether(1000).ToInt()}}

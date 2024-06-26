@@ -105,7 +105,7 @@ func (a *testAsyncMessageBroker) registerReceiverNode(nodePeerID p2ptypes.PeerID
 	}
 
 	//	fmt.Printf("registering receiver node: %s %s %s\n", key.peerID, key.capabilityId, key.donId)
-
+	//  here syncer is duplciate registering the same capability
 	//	if _, ok := a.nodes[key]; ok {
 	//		panic(fmt.Sprintf("capability already registered: %s %s %s", key.peerID, key.capabilityId, key.donId))
 	//	}

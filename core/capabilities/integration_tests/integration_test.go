@@ -64,8 +64,6 @@ func Test_HardcodedWorkflow_DonTopologies(t *testing.T) {
 		triggerDonPeers = append(triggerDonPeers, p)
 	}
 
-	//here - key creation and sign, number of trigger nodes?
-
 	reportCtx := ocrTypes.ReportContext{}
 	rawCtx := rawReportContext(reportCtx)
 
@@ -134,6 +132,7 @@ func Test_HardcodedWorkflow_DonTopologies(t *testing.T) {
 	reportCount := 0
 	for range reportsSink {
 		reportCount++
+		// Todo - -1?
 		if reportCount == len(workflowDonPeers)-1 {
 			break
 		}
@@ -225,47 +224,7 @@ func createDons(ctx context.Context, t *testing.T, triggerFactories []triggerFac
 	}
 
 	broker := newTestAsyncMessageBroker(t, 1000)
-	/*
-		workflowDONs := map[string]commoncap.DON{
-			workflowDonInfo.ID: workflowDonInfo,
-		} */
-	/*
-		for i := 0; i < len(triggerDonPeers); i++ {
-			triggerDonPeer := triggerDonPeers[i]
-			triggerDispatcher := broker.NewDispatcherForNode(triggerDonPeer)
 
-			for _, factory := range triggerFactories {
-				trig := factory(t)
-				capInfo, err := trig.Info(ctx)
-				require.NoError(t, err)
-				capInfo.DON = &triggerDonInfo
-
-				cfg := &remotetypes.RemoteTriggerConfig{}
-				cfg.ApplyDefaults()
-				cfg.MinResponsesToAggregate = uint32(workflowDonInfo.F + 1)
-				triggerPublisher := trigger.NewTriggerPublisher(cfg, trig, capInfo, triggerDonInfo, workflowDONs, triggerDispatcher, lggr)
-				servicetest.Run(t, triggerPublisher)
-				broker.RegisterReceiverNode(triggerDonPeer, capInfo.ID, capInfo.DON.ID, triggerPublisher)
-			}
-		}
-
-		for i := 0; i < len(targetDonPeers); i++ {
-			targetDonPeer := targetDonPeers[i]
-			targetDispatcher := broker.NewDispatcherForNode(targetDonPeer)
-
-			for _, factory := range targetFactories {
-				cb := factory(t, reportsSink)
-				capInfo, err := cb.Info(ctx)
-				require.NoError(t, err)
-				capInfo.DON = &targetDonInfo
-
-				capabilityNode := target.NewServer(targetDonPeer, cb, capInfo, targetDonInfo, workflowDONs, targetDispatcher,
-					1*time.Minute, lggr)
-				servicetest.Run(t, capabilityNode)
-				broker.RegisterReceiverNode(targetDonPeer, capInfo.ID, capInfo.DON.ID, capabilityNode)
-			}
-		}
-	*/
 	var triggerNodes []*cltest.TestApplication
 	for _, triggerPeer := range triggerDonPeers {
 		triggerPeerDispatcher := broker.NewDispatcherForNode(triggerPeer)
@@ -312,43 +271,6 @@ func createDons(ctx context.Context, t *testing.T, triggerFactories []triggerFac
 	for i := 0; i < len(workflowPeers); i++ {
 		workflowPeerDispatcher := broker.NewDispatcherForNode(workflowPeers[i])
 		capabilityRegistry := capabilities.NewRegistry(lggr)
-		/*
-			for _, triggerFactory := range triggerFactories {
-				trig := triggerFactory(t)
-				capInfo, err := trig.Info(ctx)
-				require.NoError(t, err)
-				capInfo.DON = &triggerDonInfo
-
-				cfg := &remotetypes.RemoteTriggerConfig{}
-				cfg.ApplyDefaults()
-				cfg.MinResponsesToAggregate = uint32(triggerDonInfo.F + 1)
-
-				triggerSubscriber := trigger.NewTriggerSubscriber(cfg, capInfo, triggerDonInfo, workflowDonInfo, workflowPeerDispatcher, nil, lggr)
-				servicetest.Run(t, triggerSubscriber)
-				broker.RegisterReceiverNode(workflowPeers[i], capInfo.ID, capInfo.DON.ID, triggerSubscriber)
-				err = capabilityRegistry.Add(ctx, triggerSubscriber)
-				require.NoError(t, err)
-			}
-
-			for _, targetFactory := range targetFactories {
-				targ := targetFactory(t, reportsSink)
-				capInfo, err := targ.Info(ctx)
-				require.NoError(t, err)
-				capInfo.DON = &targetDonInfo
-
-				targetClient := target.NewClient(capInfo, workflowDonInfo, workflowPeerDispatcher, 1*time.Minute, lggr)
-				servicetest.Run(t, targetClient)
-				broker.RegisterReceiverNode(workflowPeers[i], capInfo.ID, capInfo.DON.ID, targetClient)
-				err = capabilityRegistry.Add(ctx, targetClient)
-				require.NoError(t, err)
-			}
-
-			// Consensus capability is local to the workflow node
-			for _, consensusFactory := range consensusFactories {
-				consensus := consensusFactory(t)
-				err := capabilityRegistry.Add(ctx, consensus)
-				require.NoError(t, err)
-			} */
 
 		for _, consensusFactory := range consensusFactories {
 			consensus := consensusFactory(t)

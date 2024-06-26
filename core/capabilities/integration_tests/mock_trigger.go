@@ -14,13 +14,6 @@ import (
 
 const triggerID = "streams-trigger@1.0.0"
 
-/*
-var (
-	feedOne   = "0x1111111111111111111100000000000000000000000000000000000000000000"
-	feedTwo   = "0x2222222222222222222200000000000000000000000000000000000000000000"
-	feedThree = "0x3333333333333333333300000000000000000000000000000000000000000000"
-)*/
-
 func mockMercuryTrigger(t *testing.T, reports []datastreams.FeedReport) capabilities.TriggerCapability {
 	mt := &mockTriggerCapability{
 		CapabilityInfo: capabilities.MustNewCapabilityInfo(
@@ -30,33 +23,9 @@ func mockMercuryTrigger(t *testing.T, reports []datastreams.FeedReport) capabili
 		),
 		ch: make(chan capabilities.CapabilityResponse, 10),
 	}
-	/*	resp, err := values.NewMap(map[string]any{
-			"123": decimal.NewFromFloat(1.00),
-			"456": decimal.NewFromFloat(1.25),
-			"789": decimal.NewFromFloat(1.50),
-		})
-		require.NoError(t, err)
-	*/
 
 	resp, err := wrapReports(reports, "1", 12, datastreams.SignersMetadata{})
 	require.NoError(t, err)
-
-	/*
-		meta := values.NewString("some metadata")
-
-		triggerEvent := capabilities.TriggerEvent{
-			TriggerType: "mercury-report",
-			ID:          "1",
-			Timestamp:   strconv.FormatInt(time.Now().UnixMilli(), 10),
-			Metadata:    meta,
-			Payload:     resp,
-		}
-
-		eventVal, err := values.Wrap(triggerEvent)
-
-		cr := capabilities.CapabilityResponse{
-			Value: eventVal,
-		} */
 	mt.triggerEvent = &resp
 	return mt
 }
