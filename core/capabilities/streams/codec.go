@@ -43,7 +43,7 @@ func (c *codec) UnwrapValid(wrapped values.Value, allowedSigners [][]byte, minRe
 				continue
 			}
 			validated[signerAddr] = struct{}{}
-			if len(validated) >= minRequiredSignatures {
+			if len(validated) == minRequiredSignatures {
 				break // early exit
 			}
 		}
