@@ -16,18 +16,21 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
-	"github.com/smartcontractkit/seth"
 
-	"github.com/smartcontractkit/chainlink-testing-framework/blockchain"
+	"github.com/smartcontractkit/chainlink-testing-framework/seth"
+
+	"github.com/smartcontractkit/chainlink-testing-framework/lib/blockchain"
 
 	clClient "github.com/smartcontractkit/chainlink/integration-tests/client"
 	"github.com/smartcontractkit/chainlink/integration-tests/contracts"
 )
 
 const (
-	InsufficientFundsErr = "insufficient funds"
-	GasTooLowErr         = "gas too low"
-	OvershotErr          = "overshot"
+	InsufficientFundsErr       = "insufficient funds"
+	TransactionUnderPriced     = "transaction underpriced"
+	FailedToWaitForTransaction = "failed to wait for transaction"
+	GasTooLowErr               = "gas too low"
+	OvershotErr                = "overshot"
 )
 
 var (
@@ -51,21 +54,21 @@ func (r *InsufficientFundTransferRetrier) Retry(ctx context.Context, logger zero
 	if currentAttempt >= r.maxRetries {
 		if r.nextRetrier != nil {
 			logger.Debug().
-				Str("retier", "InsufficientFundTransferRetrier").
+				Str("retrier", "InsufficientFundTransferRetrier").
 				Msg("Max retries reached. Passing to next retrier")
 			return r.nextRetrier.Retry(ctx, logger, client, txErr, payload, 0)
 		}
 		return txErr
 	}
 
-	for txErr != nil && (strings.Contains(txErr.Error(), InsufficientFundsErr)) {
+	for txErr != nil && (strings.Contains(txErr.Error(), InsufficientFundsErr) || strings.Contains(txErr.Error(), TransactionUnderPriced) || strings.Contains(txErr.Error(), FailedToWaitForTransaction)) {
 		logger.Info().
 			Msg("Insufficient funds error detected, retrying with less funds")
 
 		newAmount := big.NewInt(0).Sub(payload.Amount, big.NewInt(blockchain.GWei))
 
 		logger.Debug().
-			Str("retier", "InsufficientFundTransferRetrier").
+			Str("retrier", "InsufficientFundTransferRetrier").
 			Str("old amount", payload.Amount.String()).
 			Str("new amount", newAmount.String()).
 			Str("diff", big.NewInt(0).Sub(payload.Amount, newAmount).String()).
@@ -76,25 +79,27 @@ func (r *InsufficientFundTransferRetrier) Retry(ctx context.Context, logger zero
 		_, retryErr := SendFunds(logger, client, payload)
 		if retryErr == nil {
 			logger.Info().
-				Str("retier", "InsufficientFundTransferRetrier").
+				Str("retrier", "InsufficientFundTransferRetrier").
 				Msg(RetrySuccessfulMsg)
 			return nil
 		}
 
-		if strings.Contains(retryErr.Error(), InsufficientFundsErr) {
+		if strings.Contains(retryErr.Error(), InsufficientFundsErr) || strings.Contains(retryErr.Error(), TransactionUnderPriced) || strings.Contains(retryErr.Error(), FailedToWaitForTransaction) {
 			return r.Retry(ctx, logger, client, retryErr, payload, currentAttempt+1)
 		}
+
+		txErr = retryErr
 	}
 
 	if r.nextRetrier != nil {
 		logger.Debug().
-			Str("retier", "InsufficientFundTransferRetrier").
+			Str("retrier", "InsufficientFundTransferRetrier").
 			Msg(NotSupportedMsg)
 		return r.nextRetrier.Retry(ctx, logger, client, txErr, payload, 0)
 	}
 
 	logger.Warn().
-		Str("retier", "InsufficientFundTransferRetrier").
+		Str("retrier", "InsufficientFundTransferRetrier").
 		Msg("No more retriers available. Unable to retry transaction. Returning error.")
 
 	return txErr
@@ -111,7 +116,7 @@ func (r *GasTooLowTransferRetrier) Retry(ctx context.Context, logger zerolog.Log
 	if payload.GasLimit != nil && *payload.GasLimit >= r.maxGasLimit {
 		if r.nextRetrier != nil {
 			logger.Debug().
-				Str("retier", "GasTooLowTransferRetrier").
+				Str("retrier", "GasTooLowTransferRetrier").
 				Msg("Max gas limit reached. Passing to next retrier")
 			return r.nextRetrier.Retry(ctx, logger, client, txErr, payload, 0)
 		}
@@ -129,7 +134,7 @@ func (r *GasTooLowTransferRetrier) Retry(ctx context.Context, logger zerolog.Log
 		}
 
 		logger.Debug().
-			Str("retier", "GasTooLowTransferRetrier").
+			Str("retrier", "GasTooLowTransferRetrier").
 			Int64("old gas limit", newGasLimit/2).
 			Int64("new gas limit", newGasLimit).
 			Int64("diff", newGasLimit).
@@ -140,7 +145,7 @@ func (r *GasTooLowTransferRetrier) Retry(ctx context.Context, logger zerolog.Log
 		_, retryErr := SendFunds(logger, client, payload)
 		if retryErr == nil {
 			logger.Info().
-				Str("retier", "GasTooLowTransferRetrier").
+				Str("retrier", "GasTooLowTransferRetrier").
 				Msg(RetrySuccessfulMsg)
 			return nil
 		}
@@ -148,17 +153,19 @@ func (r *GasTooLowTransferRetrier) Retry(ctx context.Context, logger zerolog.Log
 		if strings.Contains(retryErr.Error(), GasTooLowErr) {
 			return r.Retry(ctx, logger, client, retryErr, payload, currentAttempt+1)
 		}
+
+		txErr = retryErr
 	}
 
 	if r.nextRetrier != nil {
 		logger.Debug().
-			Str("retier", "OvershotTransferRetrier").
+			Str("retrier", "GasTooLowTransferRetrier").
 			Msg(NotSupportedMsg)
 		return r.nextRetrier.Retry(ctx, logger, client, txErr, payload, 0)
 	}
 
 	logger.Warn().
-		Str("retier", "OvershotTransferRetrier").
+		Str("retrier", "GasTooLowTransferRetrier").
 		Msg("No more retriers available. Unable to retry transaction. Returning error.")
 
 	return txErr
@@ -174,7 +181,7 @@ type OvershotTransferRetrier struct {
 func (r *OvershotTransferRetrier) Retry(ctx context.Context, logger zerolog.Logger, client *seth.Client, txErr error, payload FundsToSendPayload, currentAttempt int) error {
 	if currentAttempt >= r.maxRetries {
 		logger.Debug().
-			Str("retier", "OvershotTransferRetrier").
+			Str("retrier", "OvershotTransferRetrier").
 			Msg("Max retries reached. Passing to next retrier")
 		if r.nextRetrier != nil {
 			return r.nextRetrier.Retry(ctx, logger, client, txErr, payload, 0)
@@ -198,7 +205,7 @@ func (r *OvershotTransferRetrier) Retry(ctx context.Context, logger zerolog.Logg
 
 		newAmount := big.NewInt(0).Sub(payload.Amount, big.NewInt(int64(overshotAmount)))
 		logger.Debug().
-			Str("retier", "OvershotTransferRetrier").
+			Str("retrier", "OvershotTransferRetrier").
 			Str("old amount", payload.Amount.String()).
 			Str("new amount", newAmount.String()).
 			Str("diff", big.NewInt(0).Sub(payload.Amount, newAmount).String()).
@@ -209,7 +216,7 @@ func (r *OvershotTransferRetrier) Retry(ctx context.Context, logger zerolog.Logg
 		_, retryErr := SendFunds(logger, client, payload)
 		if retryErr == nil {
 			logger.Info().
-				Str("retier", "OvershotTransferRetrier").
+				Str("retrier", "OvershotTransferRetrier").
 				Msg(RetrySuccessfulMsg)
 			return nil
 		}
@@ -217,11 +224,13 @@ func (r *OvershotTransferRetrier) Retry(ctx context.Context, logger zerolog.Logg
 		if strings.Contains(retryErr.Error(), OvershotErr) {
 			return r.Retry(ctx, logger, client, retryErr, payload, currentAttempt+1)
 		}
+
+		txErr = retryErr
 	}
 
 	if r.nextRetrier != nil {
 		logger.Debug().
-			Str("retier", "OvershotTransferRetrier").
+			Str("retrier", "OvershotTransferRetrier").
 			Msg(NotSupportedMsg)
 		return r.nextRetrier.Retry(ctx, logger, client, txErr, payload, 0)
 	}
@@ -233,6 +242,14 @@ func (r *OvershotTransferRetrier) Retry(ctx context.Context, logger zerolog.Logg
 // of strategies to attempt to return funds, including retrying with less funds if the transaction fails due to
 // insufficient funds, and retrying with a higher gas limit if the transaction fails due to gas too low.
 func ReturnFundsFromNodes(log zerolog.Logger, client *seth.Client, chainlinkNodes []contracts.ChainlinkNodeWithKeysAndAddress) error {
+	var keyExporters []contracts.ChainlinkKeyExporter
+	for _, node := range chainlinkNodes {
+		keyExporters = append(keyExporters, node)
+	}
+	return ReturnFundsFromKeyExporterNodes(log, client, keyExporters)
+}
+
+func ReturnFundsFromKeyExporterNodes(log zerolog.Logger, client *seth.Client, chainlinkNodes []contracts.ChainlinkKeyExporter) error {
 	if client == nil {
 		return fmt.Errorf("seth client is nil, unable to return funds from chainlink nodes")
 	}

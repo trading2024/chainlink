@@ -8,16 +8,17 @@ import (
 	"testing"
 	"time"
 
-	seth_utils "github.com/smartcontractkit/chainlink-testing-framework/utils/seth"
+	"github.com/smartcontractkit/chainlink/integration-tests/utils"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/onsi/gomega"
 	"github.com/rs/zerolog"
-	"github.com/smartcontractkit/seth"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-testing-framework/logging"
-	"github.com/smartcontractkit/chainlink-testing-framework/utils/testcontext"
+	"github.com/smartcontractkit/chainlink-testing-framework/seth"
+
+	"github.com/smartcontractkit/chainlink-testing-framework/lib/logging"
+	"github.com/smartcontractkit/chainlink-testing-framework/lib/utils/testcontext"
 
 	"github.com/smartcontractkit/chainlink/integration-tests/actions"
 	"github.com/smartcontractkit/chainlink/integration-tests/client"
@@ -89,7 +90,7 @@ func TestKeeperBasicSmoke(t *testing.T) {
 		t.Run(fmt.Sprintf("registry_1_%d", registryVersion), func(t *testing.T) {
 			t.Parallel()
 			l := logging.GetTestLogger(t)
-			config, err := tc.GetConfig("Smoke", tc.Keeper)
+			config, err := tc.GetConfig([]string{"Smoke"}, tc.Keeper)
 			require.NoError(t, err, "Failed to get config")
 
 			chainClient, chainlinkNodes, linkToken, _ := setupKeeperTest(l, t, &config)
@@ -170,7 +171,7 @@ func TestKeeperBlockCountPerTurn(t *testing.T) {
 		t.Run(fmt.Sprintf("registry_1_%d", registryVersion), func(t *testing.T) {
 			t.Parallel()
 			l := logging.GetTestLogger(t)
-			config, err := tc.GetConfig("Smoke", tc.Keeper)
+			config, err := tc.GetConfig([]string{"Smoke"}, tc.Keeper)
 			require.NoError(t, err, "Failed to get config")
 
 			chainClient, chainlinkNodes, linkToken, _ := setupKeeperTest(l, t, &config)
@@ -314,7 +315,7 @@ func TestKeeperSimulation(t *testing.T) {
 		t.Run(fmt.Sprintf("registry_1_%d", registryVersion), func(t *testing.T) {
 			t.Parallel()
 			l := logging.GetTestLogger(t)
-			config, err := tc.GetConfig("Smoke", tc.Keeper)
+			config, err := tc.GetConfig([]string{"Smoke"}, tc.Keeper)
 			require.NoError(t, err, "Failed to get config")
 
 			chainClient, chainlinkNodes, linkToken, _ := setupKeeperTest(l, t, &config)
@@ -393,7 +394,7 @@ func TestKeeperCheckPerformGasLimit(t *testing.T) {
 		t.Run(fmt.Sprintf("registry_1_%d", registryVersion), func(t *testing.T) {
 			t.Parallel()
 			l := logging.GetTestLogger(t)
-			config, err := tc.GetConfig("Smoke", tc.Keeper)
+			config, err := tc.GetConfig([]string{"Smoke"}, tc.Keeper)
 			require.NoError(t, err, "Failed to get config")
 
 			chainClient, chainlinkNodes, linkToken, _ := setupKeeperTest(l, t, &config)
@@ -530,7 +531,7 @@ func TestKeeperRegisterUpkeep(t *testing.T) {
 		t.Run(fmt.Sprintf("registry_1_%d", registryVersion), func(t *testing.T) {
 			t.Parallel()
 			l := logging.GetTestLogger(t)
-			config, err := tc.GetConfig("Smoke", tc.Keeper)
+			config, err := tc.GetConfig([]string{"Smoke"}, tc.Keeper)
 			require.NoError(t, err, "Failed to get config")
 
 			chainClient, chainlinkNodes, linkToken, _ := setupKeeperTest(l, t, &config)
@@ -626,7 +627,7 @@ func TestKeeperAddFunds(t *testing.T) {
 		t.Run(fmt.Sprintf("registry_1_%d", registryVersion), func(t *testing.T) {
 			t.Parallel()
 			l := logging.GetTestLogger(t)
-			config, err := tc.GetConfig("Smoke", tc.Keeper)
+			config, err := tc.GetConfig([]string{"Smoke"}, tc.Keeper)
 			require.NoError(t, err, "Failed to get config")
 
 			chainClient, chainlinkNodes, linkToken, _ := setupKeeperTest(l, t, &config)
@@ -701,7 +702,7 @@ func TestKeeperRemove(t *testing.T) {
 		t.Run(fmt.Sprintf("registry_1_%d", registryVersion), func(t *testing.T) {
 			t.Parallel()
 			l := logging.GetTestLogger(t)
-			config, err := tc.GetConfig("Smoke", tc.Keeper)
+			config, err := tc.GetConfig([]string{"Smoke"}, tc.Keeper)
 			require.NoError(t, err, "Failed to get config")
 
 			chainClient, chainlinkNodes, linkToken, _ := setupKeeperTest(l, t, &config)
@@ -786,7 +787,7 @@ func TestKeeperPauseRegistry(t *testing.T) {
 		t.Run(fmt.Sprintf("registry_1_%d", registryVersion), func(t *testing.T) {
 			t.Parallel()
 			l := logging.GetTestLogger(t)
-			config, err := tc.GetConfig("Smoke", tc.Keeper)
+			config, err := tc.GetConfig([]string{"Smoke"}, tc.Keeper)
 			require.NoError(t, err, "Failed to get config")
 
 			chainClient, chainlinkNodes, linkToken, _ := setupKeeperTest(l, t, &config)
@@ -853,7 +854,7 @@ func TestKeeperPauseRegistry(t *testing.T) {
 func TestKeeperMigrateRegistry(t *testing.T) {
 	t.Parallel()
 	l := logging.GetTestLogger(t)
-	config, err := tc.GetConfig("Smoke", tc.Keeper)
+	config, err := tc.GetConfig([]string{"Smoke"}, tc.Keeper)
 	require.NoError(t, err, "Error getting config")
 	chainClient, chainlinkNodes, linkToken, _ := setupKeeperTest(l, t, &config)
 
@@ -956,7 +957,7 @@ func TestKeeperNodeDown(t *testing.T) {
 		t.Run(fmt.Sprintf("registry_1_%d", registryVersion), func(t *testing.T) {
 			t.Parallel()
 			l := logging.GetTestLogger(t)
-			config, err := tc.GetConfig("Smoke", tc.Keeper)
+			config, err := tc.GetConfig([]string{"Smoke"}, tc.Keeper)
 			require.NoError(t, err, "Failed to get config")
 
 			chainClient, chainlinkNodes, linkToken, _ := setupKeeperTest(l, t, &config)
@@ -1066,7 +1067,7 @@ type nodeAndJob struct {
 func TestKeeperPauseUnPauseUpkeep(t *testing.T) {
 	t.Parallel()
 	l := logging.GetTestLogger(t)
-	config, err := tc.GetConfig("Smoke", tc.Keeper)
+	config, err := tc.GetConfig([]string{"Smoke"}, tc.Keeper)
 	require.NoError(t, err, "Failed to get config")
 
 	chainClient, chainlinkNodes, linkToken, _ := setupKeeperTest(l, t, &config)
@@ -1158,7 +1159,7 @@ func TestKeeperPauseUnPauseUpkeep(t *testing.T) {
 func TestKeeperUpdateCheckData(t *testing.T) {
 	t.Parallel()
 	l := logging.GetTestLogger(t)
-	config, err := tc.GetConfig("Smoke", tc.Keeper)
+	config, err := tc.GetConfig([]string{"Smoke"}, tc.Keeper)
 	require.NoError(t, err, "Failed to get config")
 
 	chainClient, chainlinkNodes, linkToken, _ := setupKeeperTest(l, t, &config)
@@ -1243,7 +1244,7 @@ func setupKeeperTest(l zerolog.Logger, t *testing.T, config *tc.TestConfig) (
 	evmNetwork, err := env.GetFirstEvmNetwork()
 	require.NoError(t, err, "Error getting first evm network")
 
-	sethClient, err := seth_utils.GetChainClient(config, *evmNetwork)
+	sethClient, err := utils.TestAwareSethClient(t, config, evmNetwork)
 	require.NoError(t, err, "Error getting seth client")
 
 	err = actions.FundChainlinkNodesFromRootAddress(l, sethClient, contracts.ChainlinkClientToChainlinkNodeWithKeysAndAddress(env.ClCluster.NodeAPIs()), big.NewFloat(*config.Common.ChainlinkNodeFunding))
@@ -1264,7 +1265,7 @@ func TestKeeperJobReplacement(t *testing.T) {
 	t.Parallel()
 	l := logging.GetTestLogger(t)
 	registryVersion := ethereum.RegistryVersion_1_3
-	config, err := tc.GetConfig("Smoke", tc.Keeper)
+	config, err := tc.GetConfig([]string{"Smoke"}, tc.Keeper)
 	require.NoError(t, err, "Failed to get config")
 
 	chainClient, chainlinkNodes, linkToken, _ := setupKeeperTest(l, t, &config)

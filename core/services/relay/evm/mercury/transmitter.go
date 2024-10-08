@@ -27,10 +27,10 @@ import (
 	capStreams "github.com/smartcontractkit/chainlink-common/pkg/capabilities/datastreams"
 	"github.com/smartcontractkit/chainlink-common/pkg/capabilities/triggers"
 	commonconfig "github.com/smartcontractkit/chainlink-common/pkg/config"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 	"github.com/smartcontractkit/chainlink-common/pkg/types/mercury"
 
-	"github.com/smartcontractkit/chainlink/v2/core/logger"
 	mercuryutils "github.com/smartcontractkit/chainlink/v2/core/services/relay/evm/mercury/utils"
 	"github.com/smartcontractkit/chainlink/v2/core/services/relay/evm/mercury/wsrpc"
 	"github.com/smartcontractkit/chainlink/v2/core/services/relay/evm/mercury/wsrpc/pb"
@@ -101,6 +101,8 @@ type TransmitterReportDecoder interface {
 	ObservationTimestampFromReport(report ocrtypes.Report) (uint32, error)
 }
 
+type BenchmarkPriceDecoder func(feedID mercuryutils.FeedID, report ocrtypes.Report) (*big.Int, error)
+
 var _ Transmitter = (*mercuryTransmitter)(nil)
 
 type TransmitterConfig interface {
@@ -110,14 +112,15 @@ type TransmitterConfig interface {
 
 type mercuryTransmitter struct {
 	services.StateMachine
-	lggr logger.Logger
+	lggr logger.SugaredLogger
 	cfg  TransmitterConfig
 
 	orm     ORM
 	servers map[string]*server
 
-	codec             TransmitterReportDecoder
-	triggerCapability *triggers.MercuryTriggerService
+	codec                 TransmitterReportDecoder
+	benchmarkPriceDecoder BenchmarkPriceDecoder
+	triggerCapability     *triggers.MercuryTriggerService
 
 	feedID      mercuryutils.FeedID
 	jobID       int32
@@ -147,7 +150,7 @@ func getPayloadTypes() abi.Arguments {
 }
 
 type server struct {
-	lggr logger.Logger
+	lggr logger.SugaredLogger
 
 	transmitTimeout time.Duration
 
@@ -285,7 +288,7 @@ func (s *server) runQueueLoop(stopCh services.StopChan, wg *sync.WaitGroup, feed
 
 func newServer(lggr logger.Logger, cfg TransmitterConfig, client wsrpc.Client, pm *PersistenceManager, serverURL, feedIDHex string) *server {
 	return &server{
-		lggr,
+		logger.Sugared(lggr),
 		cfg.TransmitTimeout().Duration(),
 		client,
 		pm,
@@ -301,21 +304,23 @@ func newServer(lggr logger.Logger, cfg TransmitterConfig, client wsrpc.Client, p
 	}
 }
 
-func NewTransmitter(lggr logger.Logger, cfg TransmitterConfig, clients map[string]wsrpc.Client, fromAccount ed25519.PublicKey, jobID int32, feedID [32]byte, orm ORM, codec TransmitterReportDecoder, triggerCapability *triggers.MercuryTriggerService) *mercuryTransmitter {
+func NewTransmitter(lggr logger.Logger, cfg TransmitterConfig, clients map[string]wsrpc.Client, fromAccount ed25519.PublicKey, jobID int32, feedID [32]byte, orm ORM, codec TransmitterReportDecoder, benchmarkPriceDecoder BenchmarkPriceDecoder, triggerCapability *triggers.MercuryTriggerService) *mercuryTransmitter {
+	sugared := logger.Sugared(lggr)
 	feedIDHex := fmt.Sprintf("0x%x", feedID[:])
 	servers := make(map[string]*server, len(clients))
 	for serverURL, client := range clients {
-		cLggr := lggr.Named(serverURL).With("serverURL", serverURL)
+		cLggr := sugared.Named(serverURL).With("serverURL", serverURL)
 		pm := NewPersistenceManager(cLggr, serverURL, orm, jobID, int(cfg.TransmitQueueMaxSize()), flushDeletesFrequency, pruneFrequency)
 		servers[serverURL] = newServer(cLggr, cfg, client, pm, serverURL, feedIDHex)
 	}
 	return &mercuryTransmitter{
 		services.StateMachine{},
-		lggr.Named("MercuryTransmitter").With("feedID", feedIDHex),
+		sugared.Named("MercuryTransmitter").With("feedID", feedIDHex),
 		cfg,
 		orm,
 		servers,
 		codec,
+		benchmarkPriceDecoder,
 		triggerCapability,
 		feedID,
 		jobID,
@@ -512,7 +517,7 @@ func (mt *mercuryTransmitter) LatestPrice(ctx context.Context, feedID [32]byte) 
 	if !is {
 		return nil, fmt.Errorf("expected report to be []byte, but it was %T", m["report"])
 	}
-	return mt.codec.BenchmarkPriceFromReport(report)
+	return mt.benchmarkPriceDecoder(feedID, report)
 }
 
 // LatestTimestamp will return -1, nil if the feed is missing

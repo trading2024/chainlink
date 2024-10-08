@@ -515,7 +515,7 @@ func TestBlockHistoryEstimator_FetchBlocks(t *testing.T) {
 
 		head2 := evmtypes.NewHead(big.NewInt(2), b2.Hash, b1.Hash, uint64(time.Now().Unix()), ubig.New(testutils.FixtureChainID))
 		head3 := evmtypes.NewHead(big.NewInt(3), b3.Hash, b2.Hash, uint64(time.Now().Unix()), ubig.New(testutils.FixtureChainID))
-		head3.Parent = &head2
+		head3.Parent.Store(&head2)
 		err := bhe.FetchBlocks(tests.Context(t), &head3)
 		require.NoError(t, err)
 
@@ -570,7 +570,7 @@ func TestBlockHistoryEstimator_FetchBlocks(t *testing.T) {
 		// RE-ORG, head2 and head3 have different hash than saved b2 and b3
 		head2 := evmtypes.NewHead(big.NewInt(2), utils.NewHash(), b1.Hash, uint64(time.Now().Unix()), ubig.New(testutils.FixtureChainID))
 		head3 := evmtypes.NewHead(big.NewInt(3), utils.NewHash(), head2.Hash, uint64(time.Now().Unix()), ubig.New(testutils.FixtureChainID))
-		head3.Parent = &head2
+		head3.Parent.Store(&head2)
 
 		ethClient.On("BatchCallContext", mock.Anything, mock.MatchedBy(func(b []rpc.BatchElem) bool {
 			return len(b) == 2 &&
@@ -643,7 +643,7 @@ func TestBlockHistoryEstimator_FetchBlocks(t *testing.T) {
 		// head2 and head3 have identical hash to saved blocks
 		head2 := evmtypes.NewHead(big.NewInt(2), b2.Hash, b1.Hash, uint64(time.Now().Unix()), ubig.New(testutils.FixtureChainID))
 		head3 := evmtypes.NewHead(big.NewInt(3), b3.Hash, head2.Hash, uint64(time.Now().Unix()), ubig.New(testutils.FixtureChainID))
-		head3.Parent = &head2
+		head3.Parent.Store(&head2)
 
 		err := bhe.FetchBlocks(tests.Context(t), &head3)
 		require.NoError(t, err)
@@ -1501,6 +1501,15 @@ func TestBlockHistoryEstimator_IsUsable(t *testing.T) {
 		assert.Equal(t, true, bhe.IsUsable(tx, block, cfg.ChainType(), geCfg.PriceMin(), logger.Test(t)))
 
 		tx.Type = 0xff
+		assert.Equal(t, false, bhe.IsUsable(tx, block, cfg.ChainType(), geCfg.PriceMin(), logger.Test(t)))
+
+		cfg.ChainTypeF = ""
+		assert.Equal(t, true, bhe.IsUsable(tx, block, cfg.ChainType(), geCfg.PriceMin(), logger.Test(t)))
+	})
+
+	t.Run("returns false if transaction is of type 0x7e only on Scroll", func(t *testing.T) {
+		cfg.ChainTypeF = string(chaintype.ChainScroll)
+		tx := evmtypes.Transaction{Type: 0x7e, GasPrice: assets.NewWeiI(10), GasLimit: 42, Hash: utils.NewHash()}
 		assert.Equal(t, false, bhe.IsUsable(tx, block, cfg.ChainType(), geCfg.PriceMin(), logger.Test(t)))
 
 		cfg.ChainTypeF = ""

@@ -38,28 +38,39 @@ func NewClientConfigs(
 	noNewHeadsThreshold time.Duration,
 	finalityDepth *uint32,
 	finalityTagEnabled *bool,
-
+	finalizedBlockOffset *uint32,
+	enforceRepeatableRead *bool,
+	deathDeclarationDelay time.Duration,
+	noNewFinalizedHeadsThreshold time.Duration,
+	finalizedBlockPollInterval time.Duration,
+	newHeadsPollInterval time.Duration,
 ) (commonclient.ChainConfig, evmconfig.NodePool, []*toml.Node, error) {
 	nodes, err := parseNodeConfigs(nodeCfgs)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	nodePool := toml.NodePool{
-		SelectionMode:        selectionMode,
-		LeaseDuration:        commonconfig.MustNewDuration(leaseDuration),
-		PollFailureThreshold: pollFailureThreshold,
-		PollInterval:         commonconfig.MustNewDuration(pollInterval),
-		SyncThreshold:        syncThreshold,
-		NodeIsSyncingEnabled: nodeIsSyncingEnabled,
+		SelectionMode:              selectionMode,
+		LeaseDuration:              commonconfig.MustNewDuration(leaseDuration),
+		PollFailureThreshold:       pollFailureThreshold,
+		PollInterval:               commonconfig.MustNewDuration(pollInterval),
+		SyncThreshold:              syncThreshold,
+		NodeIsSyncingEnabled:       nodeIsSyncingEnabled,
+		EnforceRepeatableRead:      enforceRepeatableRead,
+		DeathDeclarationDelay:      commonconfig.MustNewDuration(deathDeclarationDelay),
+		FinalizedBlockPollInterval: commonconfig.MustNewDuration(finalizedBlockPollInterval),
+		NewHeadsPollInterval:       commonconfig.MustNewDuration(newHeadsPollInterval),
 	}
 	nodePoolCfg := &evmconfig.NodePoolConfig{C: nodePool}
 	chainConfig := &evmconfig.EVMConfig{
 		C: &toml.EVMConfig{
 			Chain: toml.Chain{
-				ChainType:           chaintype.NewChainTypeConfig(chainType),
-				FinalityDepth:       finalityDepth,
-				FinalityTagEnabled:  finalityTagEnabled,
-				NoNewHeadsThreshold: commonconfig.MustNewDuration(noNewHeadsThreshold),
+				ChainType:                    chaintype.NewConfig(chainType),
+				FinalityDepth:                finalityDepth,
+				FinalityTagEnabled:           finalityTagEnabled,
+				NoNewHeadsThreshold:          commonconfig.MustNewDuration(noNewHeadsThreshold),
+				FinalizedBlockOffset:         finalizedBlockOffset,
+				NoNewFinalizedHeadsThreshold: commonconfig.MustNewDuration(noNewFinalizedHeadsThreshold),
 			},
 		},
 	}
@@ -69,15 +80,21 @@ func NewClientConfigs(
 func parseNodeConfigs(nodeCfgs []NodeConfig) ([]*toml.Node, error) {
 	nodes := make([]*toml.Node, len(nodeCfgs))
 	for i, nodeCfg := range nodeCfgs {
-		if nodeCfg.WSURL == nil || nodeCfg.HTTPURL == nil {
-			return nil, fmt.Errorf("node config [%d]: missing WS or HTTP URL", i)
+		var wsURL, httpURL *commonconfig.URL
+		// wsUrl requirement will be checked in EVMConfig validation
+		if nodeCfg.WSURL != nil {
+			wsURL = commonconfig.MustParseURL(*nodeCfg.WSURL)
 		}
-		wsUrl := commonconfig.MustParseURL(*nodeCfg.WSURL)
-		httpUrl := commonconfig.MustParseURL(*nodeCfg.HTTPURL)
+
+		if nodeCfg.HTTPURL == nil {
+			return nil, fmt.Errorf("node config [%d]: missing HTTP URL", i)
+		}
+
+		httpURL = commonconfig.MustParseURL(*nodeCfg.HTTPURL)
 		node := &toml.Node{
 			Name:     nodeCfg.Name,
-			WSURL:    wsUrl,
-			HTTPURL:  httpUrl,
+			WSURL:    wsURL,
+			HTTPURL:  httpURL,
 			SendOnly: nodeCfg.SendOnly,
 			Order:    nodeCfg.Order,
 		}

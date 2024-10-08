@@ -31,6 +31,10 @@ func NewRelayer(lggr logger.Logger, chainID string) loop.Relayer {
 	return &relayer{lggr, chainID}
 }
 
+func (r *relayer) NewChainWriter(ctx context.Context, chainWriterConfig []byte) (types.ChainWriter, error) {
+	return nil, nil
+}
+
 func (r *relayer) NewContractReader(ctx context.Context, contractReaderConfig []byte) (types.ContractReader, error) {
 	return nil, nil
 }
@@ -59,6 +63,9 @@ func (r *relayer) NewLLOProvider(ctx context.Context, rargs types.RelayArgs, par
 		return nil, err
 	}
 	return NewLLOProvider(r.lggr, cp, transmitter, cdc), nil
+}
+func (r *relayer) LatestHead(_ context.Context) (types.Head, error) {
+	return types.Head{}, nil
 }
 func (r *relayer) GetChainStatus(ctx context.Context) (types.ChainStatus, error) {
 	return types.ChainStatus{}, nil

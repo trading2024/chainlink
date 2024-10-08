@@ -3,26 +3,31 @@ package test_env
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-
 	"go.uber.org/zap/zapcore"
 
-	"github.com/smartcontractkit/chainlink-testing-framework/blockchain"
-	ctf_config "github.com/smartcontractkit/chainlink-testing-framework/config"
-	"github.com/smartcontractkit/chainlink-testing-framework/docker/test_env"
-	"github.com/smartcontractkit/chainlink-testing-framework/logging"
-	"github.com/smartcontractkit/chainlink-testing-framework/logstream"
-	"github.com/smartcontractkit/chainlink-testing-framework/networks"
-	"github.com/smartcontractkit/chainlink-testing-framework/testreporters"
-	"github.com/smartcontractkit/chainlink-testing-framework/utils/osutil"
-	"github.com/smartcontractkit/chainlink/v2/core/services/chainlink"
+	"github.com/smartcontractkit/chainlink-testing-framework/seth"
 
+	"github.com/smartcontractkit/chainlink-testing-framework/lib/blockchain"
+	ctf_config "github.com/smartcontractkit/chainlink-testing-framework/lib/config"
+	"github.com/smartcontractkit/chainlink-testing-framework/lib/docker/test_env"
+	"github.com/smartcontractkit/chainlink-testing-framework/lib/logging"
+	"github.com/smartcontractkit/chainlink-testing-framework/lib/logstream"
+	"github.com/smartcontractkit/chainlink-testing-framework/lib/networks"
+	"github.com/smartcontractkit/chainlink-testing-framework/lib/testreporters"
+	"github.com/smartcontractkit/chainlink-testing-framework/lib/testsummary"
+	"github.com/smartcontractkit/chainlink-testing-framework/lib/utils/osutil"
+
+	"github.com/smartcontractkit/chainlink/integration-tests/testconfig/ccip"
 	"github.com/smartcontractkit/chainlink/integration-tests/types/config/node"
+	"github.com/smartcontractkit/chainlink/v2/core/services/chainlink"
 )
 
 type CleanUpType string
@@ -42,6 +47,7 @@ type ChainlinkNodeLogScannerSettings struct {
 type CLTestEnvBuilder struct {
 	hasLogStream                    bool
 	hasKillgrave                    bool
+	jdConfig                        *ccip.JDConfig
 	clNodeConfig                    *chainlink.Config
 	secretsConfig                   string
 	clNodesCount                    int
@@ -206,6 +212,11 @@ func (b *CLTestEnvBuilder) WithCustomCleanup(customFn func()) *CLTestEnvBuilder 
 	return b
 }
 
+func (b *CLTestEnvBuilder) WithJobDistributor(cfg ccip.JDConfig) *CLTestEnvBuilder {
+	b.jdConfig = &cfg
+	return b
+}
+
 type EVMNetworkOption = func(*blockchain.EVMNetwork) *blockchain.EVMNetwork
 
 // WithEVMNetworkOptions sets the options for the EVM network. This is especially useful for simulated networks, which
@@ -255,7 +266,7 @@ func (b *CLTestEnvBuilder) Build() (*CLClusterTestEnv, error) {
 			b.t.Cleanup(func() {
 				b.l.Info().Msg("Shutting down LogStream")
 				logPath, err := osutil.GetAbsoluteFolderPath("logs")
-				if err != nil {
+				if err == nil {
 					b.l.Info().Str("Absolute path", logPath).Msg("LogStream logs folder location")
 				}
 
@@ -280,6 +291,10 @@ func (b *CLTestEnvBuilder) Build() (*CLClusterTestEnv, error) {
 					// new logs can be added to the log stream, so parallel processing would get stuck on waiting for it to be unlocked
 				LogScanningLoop:
 					for i := 0; i < b.clNodesCount; i++ {
+						// if something went wrong during environment setup we might not have all nodes, and we don't want an NPE
+						if b == nil || b.te == nil || b.te.ClCluster == nil || b.te.ClCluster.Nodes == nil || len(b.te.ClCluster.Nodes)-1 < i || b.te.ClCluster.Nodes[i] == nil {
+							continue
+						}
 						// ignore count return, because we are only interested in the error
 						_, err := logProcessor.ProcessContainerLogs(b.te.ClCluster.Nodes[i].ContainerName, processFn)
 						if err != nil && !strings.Contains(err.Error(), testreporters.MultipleLogsAtLogLevelErr) && !strings.Contains(err.Error(), testreporters.OneLogAtLogLevelErr) {
@@ -304,6 +319,47 @@ func (b *CLTestEnvBuilder) Build() (*CLClusterTestEnv, error) {
 					b.te.LogStream.SaveLogLocationInTestSummary()
 				}
 				b.l.Info().Msg("Finished shutting down LogStream")
+
+				if b.t.Failed() || *b.testConfig.GetLoggingConfig().TestLogCollect {
+					b.l.Info().Msg("Dump state of all Postgres DBs used by Chainlink Nodes")
+
+					dbDumpFolder := "db_dumps"
+					dbDumpPath := fmt.Sprintf("%s/%s-%s", dbDumpFolder, b.t.Name(), time.Now().Format("2006-01-02T15-04-05"))
+					if err := os.MkdirAll(dbDumpPath, os.ModePerm); err != nil {
+						b.l.Error().Err(err).Msg("Error creating folder for Postgres DB dump")
+						return
+					}
+
+					absDbDumpPath, err := osutil.GetAbsoluteFolderPath(dbDumpFolder)
+					if err == nil {
+						b.l.Info().Str("Absolute path", absDbDumpPath).Msg("PostgresDB dump folder location")
+					}
+
+					for i := 0; i < b.clNodesCount; i++ {
+						// if something went wrong during environment setup we might not have all nodes, and we don't want an NPE
+						if b == nil || b.te == nil || b.te.ClCluster == nil || b.te.ClCluster.Nodes == nil || len(b.te.ClCluster.Nodes)-1 < i || b.te.ClCluster.Nodes[i] == nil || b.te.ClCluster.Nodes[i].PostgresDb == nil {
+							continue
+						}
+
+						filePath := filepath.Join(dbDumpPath, fmt.Sprintf("postgres_db_dump_%s.sql", b.te.ClCluster.Nodes[i].ContainerName))
+						localDbDumpFile, err := os.Create(filePath)
+						if err != nil {
+							b.l.Error().Err(err).Msg("Error creating localDbDumpFile for Postgres DB dump")
+							_ = localDbDumpFile.Close()
+							continue
+						}
+
+						if err := b.te.ClCluster.Nodes[i].PostgresDb.ExecPgDumpFromContainer(localDbDumpFile); err != nil {
+							b.l.Error().Err(err).Msg("Error dumping Postgres DB")
+						}
+						_ = localDbDumpFile.Close()
+					}
+					b.l.Info().Msg("Finished dumping state of all Postgres DBs used by Chainlink Nodes")
+				}
+
+				if b.testConfig.GetSethConfig() != nil && ((b.t.Failed() && slices.Contains(b.testConfig.GetSethConfig().TraceOutputs, seth.TraceOutput_DOT) && b.testConfig.GetSethConfig().TracingLevel != seth.TracingLevel_None) || (!b.t.Failed() && slices.Contains(b.testConfig.GetSethConfig().TraceOutputs, seth.TraceOutput_DOT) && b.testConfig.GetSethConfig().TracingLevel == seth.TracingLevel_All)) {
+					_ = testsummary.AddEntry(b.t.Name(), "dot_graphs", "true")
+				}
 			})
 		} else {
 			b.l.Warn().Msg("LogStream won't be cleaned up, because either test instance is not set or cleanup type is set to none")
@@ -347,6 +403,12 @@ func (b *CLTestEnvBuilder) Build() (*CLClusterTestEnv, error) {
 		log.Warn().Msg("Chainlink node log scanner settings provided, but LogStream is not enabled. Ignoring Chainlink node log scanner settings, as no logs will be available.")
 	}
 
+	if b.jdConfig != nil {
+		err := b.te.StartJobDistributor(b.jdConfig)
+		if err != nil {
+			return nil, err
+		}
+	}
 	// in this case we will use the builder only to start chains, not the cluster, because currently we support only 1 network config per cluster
 	if len(b.privateEthereumNetworks) > 1 {
 		b.te.rpcProviders = make(map[int64]*test_env.RpcProvider)
@@ -361,29 +423,29 @@ func (b *CLTestEnvBuilder) Build() (*CLClusterTestEnv, error) {
 			b.te.rpcProviders[networkConfig.ChainID] = &rpcProvider
 			b.te.EVMNetworks = append(b.te.EVMNetworks, &networkConfig)
 		}
+		if b.clNodesCount > 0 {
+			dereferrencedEvms := make([]blockchain.EVMNetwork, 0)
+			for _, en := range b.te.EVMNetworks {
+				dereferrencedEvms = append(dereferrencedEvms, *en)
+			}
 
-		dereferrencedEvms := make([]blockchain.EVMNetwork, 0)
-		for _, en := range b.te.EVMNetworks {
-			dereferrencedEvms = append(dereferrencedEvms, *en)
+			nodeConfigInToml := b.testConfig.GetNodeConfig()
+
+			nodeConfig, _, err := node.BuildChainlinkNodeConfig(
+				dereferrencedEvms,
+				nodeConfigInToml.BaseConfigTOML,
+				nodeConfigInToml.CommonChainConfigTOML,
+				nodeConfigInToml.ChainConfigTOMLByChainID,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			err = b.te.StartClCluster(nodeConfig, b.clNodesCount, b.secretsConfig, b.testConfig, b.clNodesOpts...)
+			if err != nil {
+				return nil, err
+			}
 		}
-
-		nodeConfigInToml := b.testConfig.GetNodeConfig()
-
-		nodeConfig, _, err := node.BuildChainlinkNodeConfig(
-			dereferrencedEvms,
-			nodeConfigInToml.BaseConfigTOML,
-			nodeConfigInToml.CommonChainConfigTOML,
-			nodeConfigInToml.ChainConfigTOMLByChainID,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		err = b.te.StartClCluster(nodeConfig, b.clNodesCount, b.secretsConfig, b.testConfig, b.clNodesOpts...)
-		if err != nil {
-			return nil, err
-		}
-
 		b.te.isSimulatedNetwork = true
 
 		return b.te, nil
@@ -448,18 +510,21 @@ func (b *CLTestEnvBuilder) Build() (*CLClusterTestEnv, error) {
 			b.te.EVMNetworks = append(b.te.EVMNetworks, &networkConfig)
 		}
 
+		// only add EVM networks to node config if running EVM tests
 		dereferrencedEvms := make([]blockchain.EVMNetwork, 0)
-		for _, en := range b.te.EVMNetworks {
-			network := *en
-			if en.Simulated {
-				if rpcs, ok := b.te.rpcProviders[network.ChainID]; ok {
-					network.HTTPURLs = rpcs.PrivateHttpUrls()
-					network.URLs = rpcs.PrivateWsUrsl()
-				} else {
-					return nil, fmt.Errorf("rpc provider for chain %d not found", network.ChainID)
+		if b.isEVM {
+			for _, en := range b.te.EVMNetworks {
+				network := *en
+				if en.Simulated {
+					if rpcs, ok := b.te.rpcProviders[network.ChainID]; ok {
+						network.HTTPURLs = rpcs.PrivateHttpUrls()
+						network.URLs = rpcs.PrivateWsUrsl()
+					} else {
+						return nil, fmt.Errorf("rpc provider for chain %d not found", network.ChainID)
+					}
 				}
+				dereferrencedEvms = append(dereferrencedEvms, network)
 			}
-			dereferrencedEvms = append(dereferrencedEvms, network)
 		}
 
 		nodeConfigInToml := b.testConfig.GetNodeConfig()
@@ -498,6 +563,7 @@ func (b *CLTestEnvBuilder) Build() (*CLClusterTestEnv, error) {
 	b.l.Info().
 		Str("privateEthereumNetwork", enDesc).
 		Bool("hasKillgrave", b.hasKillgrave).
+		Bool("hasJobDistributor", b.jdConfig != nil).
 		Int("clNodesCount", b.clNodesCount).
 		Strs("customNodeCsaKeys", b.customNodeCsaKeys).
 		Strs("defaultNodeCsaKeys", b.defaultNodeCsaKeys).

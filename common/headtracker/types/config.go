@@ -6,6 +6,7 @@ type Config interface {
 	BlockEmissionIdleWarningThreshold() time.Duration
 	FinalityDepth() uint32
 	FinalityTagEnabled() bool
+	FinalizedBlockOffset() uint32
 }
 
 type HeadTrackerConfig interface {
@@ -14,4 +15,5 @@ type HeadTrackerConfig interface {
 	SamplingInterval() time.Duration
 	FinalityTagBypass() bool
 	MaxAllowedFinalityDepth() uint32
+	PersistenceEnabled() bool
 }

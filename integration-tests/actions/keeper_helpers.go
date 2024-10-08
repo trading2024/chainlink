@@ -8,12 +8,16 @@ import (
 	"strconv"
 	"testing"
 
+	tt "github.com/smartcontractkit/chainlink/integration-tests/types"
+
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	"github.com/smartcontractkit/seth"
 
-	ctf_concurrency "github.com/smartcontractkit/chainlink-testing-framework/concurrency"
-	"github.com/smartcontractkit/chainlink-testing-framework/logging"
+	"github.com/smartcontractkit/chainlink-testing-framework/seth"
+
+	ctf_concurrency "github.com/smartcontractkit/chainlink-testing-framework/lib/concurrency"
+	"github.com/smartcontractkit/chainlink-testing-framework/lib/logging"
 	"github.com/smartcontractkit/chainlink/integration-tests/contracts/ethereum"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -80,7 +84,7 @@ func DeployKeeperContracts(
 	client *seth.Client,
 	linkFundsForEachUpkeep *big.Int,
 ) (contracts.KeeperRegistry, contracts.KeeperRegistrar, []contracts.KeeperConsumer, []*big.Int) {
-	ef, err := contracts.DeployMockETHLINKFeed(client, big.NewInt(2e18))
+	ef, err := contracts.DeployMockLINKETHFeed(client, big.NewInt(2e18))
 	require.NoError(t, err, "Deploying mock ETH-Link feed shouldn't fail")
 	gf, err := contracts.DeployMockGASFeed(client, big.NewInt(2e11))
 	require.NoError(t, err, "Deploying mock gas feed shouldn't fail")
@@ -115,7 +119,7 @@ func DeployKeeperContracts(
 	}
 
 	registrar := DeployKeeperRegistrar(t, client, registryVersion, linkToken, registrarSettings, registry)
-	upkeeps, upkeepIds := DeployConsumers(t, client, registry, registrar, linkToken, numberOfUpkeeps, linkFundsForEachUpkeep, upkeepGasLimit, false, false)
+	upkeeps, upkeepIds := DeployLegacyConsumers(t, client, registry, registrar, linkToken, numberOfUpkeeps, linkFundsForEachUpkeep, upkeepGasLimit, false, false, false, nil)
 
 	return registry, registrar, upkeeps, upkeepIds
 }
@@ -135,7 +139,7 @@ func DeployPerformanceKeeperContracts(
 	checkGasToBurn, // How much gas should be burned on checkUpkeep() calls
 	performGasToBurn int64, // How much gas should be burned on performUpkeep() calls
 ) (contracts.KeeperRegistry, contracts.KeeperRegistrar, []contracts.KeeperConsumerPerformance, []*big.Int) {
-	ef, err := contracts.DeployMockETHLINKFeed(chainClient, big.NewInt(2e18))
+	ef, err := contracts.DeployMockLINKETHFeed(chainClient, big.NewInt(2e18))
 	require.NoError(t, err, "Deploying mock ETH-Link feed shouldn't fail")
 	gf, err := contracts.DeployMockGASFeed(chainClient, big.NewInt(2e11))
 	require.NoError(t, err, "Deploying mock gas feed shouldn't fail")
@@ -178,7 +182,7 @@ func DeployPerformanceKeeperContracts(
 		upkeepsAddresses = append(upkeepsAddresses, upkeep.Address())
 	}
 
-	upkeepIds := RegisterUpkeepContracts(t, chainClient, linkToken, linkFundsForEachUpkeep, upkeepGasLimit, registry, registrar, numberOfContracts, upkeepsAddresses, false, false)
+	upkeepIds := RegisterUpkeepContracts(t, chainClient, linkToken, linkFundsForEachUpkeep, upkeepGasLimit, registry, registrar, numberOfContracts, upkeepsAddresses, false, false, false, nil)
 
 	return registry, registrar, upkeeps, upkeepIds
 }
@@ -195,7 +199,7 @@ func DeployPerformDataCheckerContracts(
 	linkFundsForEachUpkeep *big.Int,
 	expectedData []byte,
 ) (contracts.KeeperRegistry, contracts.KeeperRegistrar, []contracts.KeeperPerformDataChecker, []*big.Int) {
-	ef, err := contracts.DeployMockETHLINKFeed(chainClient, big.NewInt(2e18))
+	ef, err := contracts.DeployMockLINKETHFeed(chainClient, big.NewInt(2e18))
 	require.NoError(t, err, "Deploying mock ETH-Link feed shouldn't fail")
 	gf, err := contracts.DeployMockGASFeed(chainClient, big.NewInt(2e11))
 	require.NoError(t, err, "Deploying mock gas feed shouldn't fail")
@@ -236,7 +240,7 @@ func DeployPerformDataCheckerContracts(
 		upkeepsAddresses = append(upkeepsAddresses, upkeep.Address())
 	}
 
-	upkeepIds := RegisterUpkeepContracts(t, chainClient, linkToken, linkFundsForEachUpkeep, upkeepGasLimit, registry, registrar, numberOfContracts, upkeepsAddresses, false, false)
+	upkeepIds := RegisterUpkeepContracts(t, chainClient, linkToken, linkFundsForEachUpkeep, upkeepGasLimit, registry, registrar, numberOfContracts, upkeepsAddresses, false, false, false, nil)
 
 	return registry, registrar, upkeeps, upkeepIds
 }
@@ -259,14 +263,14 @@ func DeployKeeperRegistrar(
 	return registrar
 }
 
-func RegisterUpkeepContracts(t *testing.T, client *seth.Client, linkToken contracts.LinkToken, linkFunds *big.Int, upkeepGasLimit uint32, registry contracts.KeeperRegistry, registrar contracts.KeeperRegistrar, numberOfContracts int, upkeepAddresses []string, isLogTrigger bool, isMercury bool) []*big.Int {
+func RegisterUpkeepContracts(t *testing.T, client *seth.Client, linkToken contracts.LinkToken, fundsForEachUpkeep *big.Int, upkeepGasLimit uint32, registry contracts.KeeperRegistry, registrar contracts.KeeperRegistrar, numberOfContracts int, upkeepAddresses []string, isLogTrigger bool, isMercury bool, isBillingTokenNative bool, wethToken contracts.WETHToken) []*big.Int {
 	checkData := make([][]byte, 0)
 	for i := 0; i < numberOfContracts; i++ {
 		checkData = append(checkData, []byte("0"))
 	}
 	return RegisterUpkeepContractsWithCheckData(
-		t, client, linkToken, linkFunds, upkeepGasLimit, registry, registrar,
-		numberOfContracts, upkeepAddresses, checkData, isLogTrigger, isMercury)
+		t, client, linkToken, fundsForEachUpkeep, upkeepGasLimit, registry, registrar,
+		numberOfContracts, upkeepAddresses, checkData, isLogTrigger, isMercury, isBillingTokenNative, wethToken)
 }
 
 type upkeepRegistrationResult struct {
@@ -284,7 +288,7 @@ type upkeepConfig struct {
 
 type UpkeepId = *big.Int
 
-func RegisterUpkeepContractsWithCheckData(t *testing.T, client *seth.Client, linkToken contracts.LinkToken, linkFunds *big.Int, upkeepGasLimit uint32, registry contracts.KeeperRegistry, registrar contracts.KeeperRegistrar, numberOfContracts int, upkeepAddresses []string, checkData [][]byte, isLogTrigger bool, isMercury bool) []*big.Int {
+func RegisterUpkeepContractsWithCheckData(t *testing.T, client *seth.Client, linkToken contracts.LinkToken, fundsForEachUpkeep *big.Int, upkeepGasLimit uint32, registry contracts.KeeperRegistry, registrar contracts.KeeperRegistrar, numberOfContracts int, upkeepAddresses []string, checkData [][]byte, isLogTrigger bool, isMercury bool, isBillingTokenNative bool, wethToken contracts.WETHToken) []*big.Int {
 	l := logging.GetTestLogger(t)
 
 	concurrency, err := GetAndAssertCorrectConcurrency(client, 1)
@@ -300,45 +304,69 @@ func RegisterUpkeepContractsWithCheckData(t *testing.T, client *seth.Client, lin
 	var registerUpkeepFn = func(resultCh chan upkeepRegistrationResult, errorCh chan error, executorNum int, config upkeepConfig) {
 		id := uuid.New().String()
 		keyNum := executorNum + 1 // key 0 is the root key
+		var tx *types.Transaction
 
-		req, err := registrar.EncodeRegisterRequest(
-			fmt.Sprintf("upkeep_%s", id),
-			[]byte("test@mail.com"),
-			config.address,
-			upkeepGasLimit,
-			client.MustGetRootKeyAddress().Hex(), // upkeep Admin
-			config.data,
-			linkFunds,
-			0,
-			client.Addresses[keyNum].Hex(),
-			isLogTrigger,
-			isMercury,
-			linkToken.Address(),
-		)
+		if isBillingTokenNative {
+			// register upkeep with native token
+			tx, err = registrar.RegisterUpkeepFromKey(
+				keyNum,
+				fmt.Sprintf("upkeep_%s", id),
+				[]byte("test@mail.com"),
+				config.address,
+				upkeepGasLimit,
+				client.MustGetRootKeyAddress().Hex(), // upkeep Admin
+				config.data,
+				fundsForEachUpkeep,
+				wethToken.Address(),
+				isLogTrigger,
+				isMercury,
+			)
+			if err != nil {
+				errorCh <- errors.Wrapf(err, "[id: %s] Failed to register upkeep at %s", id, config.address)
+				return
+			}
+		} else {
+			// register upkeep with LINK
+			req, err := registrar.EncodeRegisterRequest(
+				fmt.Sprintf("upkeep_%s", id),
+				[]byte("test@mail.com"),
+				config.address,
+				upkeepGasLimit,
+				client.MustGetRootKeyAddress().Hex(), // upkeep Admin
+				config.data,
+				fundsForEachUpkeep,
+				0,
+				client.Addresses[keyNum].Hex(),
+				isLogTrigger,
+				isMercury,
+				linkToken.Address(),
+			)
 
-		if err != nil {
-			errorCh <- errors.Wrapf(err, "[id: %s] Failed to encode register request for upkeep at %s", id, config.address)
-			return
+			if err != nil {
+				errorCh <- errors.Wrapf(err, "[id: %s] Failed to encode register request for upkeep at %s", id, config.address)
+				return
+			}
+
+			balance, err := linkToken.BalanceOf(context.Background(), client.Addresses[keyNum].Hex())
+			if err != nil {
+				errorCh <- errors.Wrapf(err, "[id: %s]Failed to get LINK balance of %s", id, client.Addresses[keyNum].Hex())
+				return
+			}
+
+			// not strictly necessary, but helps us to avoid an errorless revert if there is not enough LINK
+			if balance.Cmp(fundsForEachUpkeep) < 0 {
+				errorCh <- fmt.Errorf("[id: %s] Not enough LINK balance for %s. Has: %s. Needs: %s", id, client.Addresses[keyNum].Hex(), balance.String(), fundsForEachUpkeep.String())
+				return
+			}
+
+			tx, err = linkToken.TransferAndCallFromKey(registrar.Address(), fundsForEachUpkeep, req, keyNum)
+			if err != nil {
+				errorCh <- errors.Wrapf(err, "[id: %s] Failed to register upkeep at %s", id, config.address)
+				return
+			}
 		}
 
-		balance, err := linkToken.BalanceOf(context.Background(), client.Addresses[keyNum].Hex())
-		if err != nil {
-			errorCh <- errors.Wrapf(err, "[id: %s]Failed to get LINK balance of %s", id, client.Addresses[keyNum].Hex())
-			return
-		}
-
-		// not stricly necessary, but helps us to avoid an errorless revert if there is not enough LINK
-		if balance.Cmp(linkFunds) < 0 {
-			errorCh <- fmt.Errorf("[id: %s] Not enough LINK balance for %s. Has: %s. Needs: %s", id, client.Addresses[keyNum].Hex(), balance.String(), linkFunds.String())
-			return
-		}
-
-		tx, err := linkToken.TransferAndCallFromKey(registrar.Address(), linkFunds, req, keyNum)
-		if err != nil {
-			errorCh <- errors.Wrapf(err, "[id: %s] Failed to register upkeep at %s", id, config.address)
-			return
-		}
-
+		// parse txn to get upkeep ID
 		receipt, err := client.Client.TransactionReceipt(context.Background(), tx.Hash())
 		if err != nil {
 			errorCh <- errors.Wrapf(err, "[id: %s] Failed to get receipt for upkeep at %s and tx hash %s", id, config.address, tx.Hash())
@@ -405,10 +433,10 @@ func DeployKeeperConsumers(t *testing.T, client *seth.Client, numberOfContracts 
 			// v2.1 only: Conditional based contract with Mercury enabled
 			keeperConsumerInstance, err = contracts.DeployAutomationStreamsLookupUpkeepConsumerFromKey(client, keyNum, big.NewInt(1000), big.NewInt(5), false, true, false) // 1000 block test range
 		} else if isLogTrigger {
-			// v2.1 only: Log triggered based contract without Mercury
+			// v2.1+: Log triggered based contract without Mercury
 			keeperConsumerInstance, err = contracts.DeployAutomationLogTriggerConsumerFromKey(client, keyNum, big.NewInt(1000)) // 1000 block test range
 		} else {
-			// v2.0 and v2.1: Conditional based contract without Mercury
+			// v2.0+: Conditional based contract without Mercury
 			keeperConsumerInstance, err = contracts.DeployUpkeepCounterFromKey(client, keyNum, big.NewInt(999999), big.NewInt(5))
 		}
 
@@ -426,6 +454,33 @@ func DeployKeeperConsumers(t *testing.T, client *seth.Client, numberOfContracts 
 	// require.Equal(t, 0, len(deplymentErrors), "Error deploying consumer contracts")
 	require.Equal(t, numberOfContracts, len(results), "Incorrect number of Keeper Consumer Contracts deployed")
 	l.Info().Msg("Successfully deployed all Keeper Consumer Contracts")
+
+	return results
+}
+
+// SetupKeeperConsumers concurrently loads or deploys keeper consumer contracts. It requires at least 1 ephemeral key to be present in Seth config.
+func SetupKeeperConsumers(t *testing.T, client *seth.Client, numberOfContracts int, isLogTrigger bool, isMercury bool, config tt.AutomationTestConfig) []contracts.KeeperConsumer {
+	l := logging.GetTestLogger(t)
+
+	var results []contracts.KeeperConsumer
+
+	if config.GetAutomationConfig().UseExistingUpkeepContracts() {
+		contractsLoaded, err := config.GetAutomationConfig().UpkeepContractAddresses()
+		require.NoError(t, err, "Failed to get upkeep contract addresses")
+		require.Equal(t, numberOfContracts, len(contractsLoaded), "Incorrect number of Keeper Consumer Contracts loaded")
+		l.Info().Int("Number of Contracts", numberOfContracts).Msg("Loading upkeep contracts from config")
+		// Load existing contracts
+		for i := 0; i < numberOfContracts; i++ {
+			require.NoError(t, err, "Failed to get upkeep contract addresses")
+			contract, err := contracts.LoadKeeperConsumer(client, contractsLoaded[i])
+			require.NoError(t, err, "Failed to load keeper consumer contract")
+			l.Info().Str("Contract Address", contract.Address()).Int("Number", i+1).Int("Out Of", numberOfContracts).Msg("Loaded Keeper Consumer Contract")
+			results = append(results, contract)
+		}
+	} else {
+		// Deploy new contracts
+		return DeployKeeperConsumers(t, client, numberOfContracts, isLogTrigger, isMercury)
+	}
 
 	return results
 }
@@ -580,7 +635,7 @@ func RegisterNewUpkeeps(
 	err = SendLinkFundsToDeploymentAddresses(chainClient, concurrency, numberOfNewUpkeeps, operationsPerAddress, multicallAddress, linkFundsForEachUpkeep, linkToken)
 	require.NoError(t, err, "Sending link funds to deployment addresses shouldn't fail")
 
-	newUpkeepIDs := RegisterUpkeepContracts(t, chainClient, linkToken, linkFundsForEachUpkeep, upkeepGasLimit, registry, registrar, numberOfNewUpkeeps, addressesOfNewUpkeeps, false, false)
+	newUpkeepIDs := RegisterUpkeepContracts(t, chainClient, linkToken, linkFundsForEachUpkeep, upkeepGasLimit, registry, registrar, numberOfNewUpkeeps, addressesOfNewUpkeeps, false, false, false, nil)
 
 	return newlyDeployedUpkeeps, newUpkeepIDs
 }

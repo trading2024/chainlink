@@ -15,14 +15,9 @@ import (
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
-	"github.com/smartcontractkit/chainlink-common/pkg/utils"
 
-	gethtypes "github.com/ethereum/go-ethereum/core/types"
-
-	"github.com/smartcontractkit/chainlink/v2/common/client"
 	"github.com/smartcontractkit/chainlink/v2/core/chains/evm/assets"
 	evmclient "github.com/smartcontractkit/chainlink/v2/core/chains/evm/client"
-	"github.com/smartcontractkit/chainlink/v2/core/chains/evm/config/chaintype"
 )
 
 type ArbL1GasOracle interface {
@@ -36,7 +31,6 @@ type arbitrumL1Oracle struct {
 	client     l1OracleClient
 	pollPeriod time.Duration
 	logger     logger.SugaredLogger
-	chainType  chaintype.ChainType
 
 	l1GasPriceAddress   string
 	gasPriceMethod      string
@@ -71,7 +65,7 @@ const (
 	ArbGasInfo_getPricesInArbGas = "02199f34"
 )
 
-func NewArbitrumL1GasOracle(lggr logger.Logger, ethClient l1OracleClient) *arbitrumL1Oracle {
+func NewArbitrumL1GasOracle(lggr logger.Logger, ethClient l1OracleClient) (*arbitrumL1Oracle, error) {
 	var l1GasPriceAddress, gasPriceMethod, l1GasCostAddress, gasCostMethod string
 	var l1GasPriceMethodAbi, l1GasCostMethodAbi abi.ABI
 	var gasPriceErr, gasCostErr error
@@ -84,17 +78,16 @@ func NewArbitrumL1GasOracle(lggr logger.Logger, ethClient l1OracleClient) *arbit
 	l1GasCostMethodAbi, gasCostErr = abi.JSON(strings.NewReader(GasEstimateL1ComponentAbiString))
 
 	if gasPriceErr != nil {
-		panic("Failed to parse L1 gas price method ABI for chain: arbitrum")
+		return nil, fmt.Errorf("failed to parse L1 gas price method ABI for chain: arbitrum: %w", gasPriceErr)
 	}
 	if gasCostErr != nil {
-		panic("Failed to parse L1 gas cost method ABI for chain: arbitrum")
+		return nil, fmt.Errorf("failed to parse L1 gas cost method ABI for chain: arbitrum: %w", gasCostErr)
 	}
 
 	return &arbitrumL1Oracle{
 		client:     ethClient,
 		pollPeriod: PollPeriod,
 		logger:     logger.Sugared(logger.Named(lggr, "L1GasOracle(arbitrum)")),
-		chainType:  chaintype.ChainArbitrum,
 
 		l1GasPriceAddress:   l1GasPriceAddress,
 		gasPriceMethod:      gasPriceMethod,
@@ -106,7 +99,7 @@ func NewArbitrumL1GasOracle(lggr logger.Logger, ethClient l1OracleClient) *arbit
 		chInitialised: make(chan struct{}),
 		chStop:        make(chan struct{}),
 		chDone:        make(chan struct{}),
-	}
+	}, nil
 }
 
 func (o *arbitrumL1Oracle) Name() string {
@@ -135,41 +128,45 @@ func (o *arbitrumL1Oracle) HealthReport() map[string]error {
 func (o *arbitrumL1Oracle) run() {
 	defer close(o.chDone)
 
-	t := o.refresh()
+	o.refresh()
 	close(o.chInitialised)
+
+	t := services.TickerConfig{
+		Initial:   o.pollPeriod,
+		JitterPct: services.DefaultJitter,
+	}.NewTicker(o.pollPeriod)
+	defer t.Stop()
 
 	for {
 		select {
 		case <-o.chStop:
 			return
 		case <-t.C:
-			t = o.refresh()
+			o.refresh()
 		}
 	}
 }
-func (o *arbitrumL1Oracle) refresh() (t *time.Timer) {
-	t, err := o.refreshWithError()
+func (o *arbitrumL1Oracle) refresh() {
+	err := o.refreshWithError()
 	if err != nil {
+		o.logger.Criticalw("Failed to refresh gas price", "err", err)
 		o.SvcErrBuffer.Append(err)
 	}
-	return
 }
 
-func (o *arbitrumL1Oracle) refreshWithError() (t *time.Timer, err error) {
-	t = time.NewTimer(utils.WithJitter(o.pollPeriod))
-
+func (o *arbitrumL1Oracle) refreshWithError() error {
 	ctx, cancel := o.chStop.CtxCancel(evmclient.ContextWithDefaultTimeout())
 	defer cancel()
 
 	price, err := o.fetchL1GasPrice(ctx)
 	if err != nil {
-		return t, err
+		return err
 	}
 
 	o.l1GasPriceMu.Lock()
 	defer o.l1GasPriceMu.Unlock()
 	o.l1GasPrice = priceEntry{price: assets.NewWei(price), timestamp: time.Now()}
-	return
+	return nil
 }
 
 func (o *arbitrumL1Oracle) fetchL1GasPrice(ctx context.Context) (price *big.Int, err error) {
@@ -177,24 +174,18 @@ func (o *arbitrumL1Oracle) fetchL1GasPrice(ctx context.Context) (price *big.Int,
 	precompile := common.HexToAddress(o.l1GasPriceAddress)
 	callData, err = o.l1GasPriceMethodAbi.Pack(o.gasPriceMethod)
 	if err != nil {
-		errMsg := "failed to pack calldata for arbitrum L1 gas price method"
-		o.logger.Errorf(errMsg)
-		return nil, fmt.Errorf("%s: %w", errMsg, err)
+		return nil, fmt.Errorf("failed to pack calldata for arbitrum L1 gas price method: %w", err)
 	}
 	b, err = o.client.CallContract(ctx, ethereum.CallMsg{
 		To:   &precompile,
 		Data: callData,
 	}, nil)
 	if err != nil {
-		errMsg := "gas oracle contract call failed"
-		o.logger.Errorf(errMsg)
-		return nil, fmt.Errorf("%s: %w", errMsg, err)
+		return nil, fmt.Errorf("gas oracle contract call failed: %w", err)
 	}
 
 	if len(b) != 32 { // returns uint256;
-		errMsg := fmt.Sprintf("return data length (%d) different than expected (%d)", len(b), 32)
-		o.logger.Criticalf(errMsg)
-		return nil, fmt.Errorf(errMsg)
+		return nil, fmt.Errorf("return data length (%d) different than expected (%d)", len(b), 32)
 	}
 	price = new(big.Int).SetBytes(b)
 	return price, nil
@@ -220,41 +211,6 @@ func (o *arbitrumL1Oracle) GasPrice(_ context.Context) (l1GasPrice *assets.Wei, 
 		return l1GasPrice, fmt.Errorf("gas price is stale")
 	}
 	return
-}
-
-// Gets the L1 gas cost for the provided transaction at the specified block num
-// If block num is not provided, the value on the latest block num is used
-func (o *arbitrumL1Oracle) GetGasCost(ctx context.Context, tx *gethtypes.Transaction, blockNum *big.Int) (*assets.Wei, error) {
-	ctx, cancel := context.WithTimeout(ctx, client.QueryTimeout)
-	defer cancel()
-	var callData, b []byte
-	var err error
-
-	if callData, err = o.l1GasCostMethodAbi.Pack(o.gasCostMethod, tx.To(), false, tx.Data()); err != nil {
-		return nil, fmt.Errorf("failed to pack calldata for %s L1 gas cost estimation method: %w", o.chainType, err)
-	}
-
-	precompile := common.HexToAddress(o.l1GasCostAddress)
-	b, err = o.client.CallContract(ctx, ethereum.CallMsg{
-		To:   &precompile,
-		Data: callData,
-	}, blockNum)
-	if err != nil {
-		errorMsg := fmt.Sprintf("gas oracle contract call failed: %v", err)
-		o.logger.Errorf(errorMsg)
-		return nil, fmt.Errorf(errorMsg)
-	}
-
-	var l1GasCost *big.Int
-
-	if len(b) != 8+2*32 { // returns (uint64 gasEstimateForL1, uint256 baseFee, uint256 l1BaseFeeEstimate);
-		errorMsg := fmt.Sprintf("return data length (%d) different than expected (%d)", len(b), 8+2*32)
-		o.logger.Critical(errorMsg)
-		return nil, fmt.Errorf(errorMsg)
-	}
-	l1GasCost = new(big.Int).SetBytes(b[:8])
-
-	return assets.NewWei(l1GasCost), nil
 }
 
 // callGetPricesInArbGas calls ArbGasInfo.getPricesInArbGas() on the precompile contract ArbGasInfoAddress.

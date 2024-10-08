@@ -4,28 +4,29 @@ import (
 	"fmt"
 	"testing"
 
-	seth_utils "github.com/smartcontractkit/chainlink-testing-framework/utils/seth"
+	seth_utils "github.com/smartcontractkit/chainlink-testing-framework/lib/utils/seth"
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-testing-framework/logging"
+	"github.com/smartcontractkit/chainlink-testing-framework/lib/logging"
 
 	"time"
 
 	"github.com/chaos-mesh/chaos-mesh/api/v1alpha1"
 	"github.com/google/uuid"
-	"github.com/smartcontractkit/havoc/k8schaos"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/smartcontractkit/chainlink-testing-framework/networks"
-	"github.com/smartcontractkit/chainlink-testing-framework/utils/ptr"
+	"github.com/smartcontractkit/chainlink-testing-framework/havoc"
+
+	"github.com/smartcontractkit/chainlink-testing-framework/lib/networks"
+	"github.com/smartcontractkit/chainlink-testing-framework/lib/utils/ptr"
 	"github.com/smartcontractkit/chainlink/integration-tests/actions"
 	tc "github.com/smartcontractkit/chainlink/integration-tests/testconfig"
 	"github.com/smartcontractkit/chainlink/integration-tests/testsetups"
 )
 
 func TestOCRv1Soak(t *testing.T) {
-	config, err := tc.GetConfig("Soak", tc.OCR)
+	config, err := tc.GetConfig([]string{"Soak"}, tc.OCR)
 	require.NoError(t, err, "Error getting config")
 	ocrSoakTest, err := testsetups.NewOCRSoakTest(t, &config)
 	require.NoError(t, err, "Error creating OCR soak test")
@@ -33,7 +34,7 @@ func TestOCRv1Soak(t *testing.T) {
 }
 
 func TestOCRv2Soak(t *testing.T) {
-	config, err := tc.GetConfig("Soak", tc.OCR2)
+	config, err := tc.GetConfig([]string{"Soak"}, tc.OCR2)
 	require.NoError(t, err, "Error getting config")
 
 	ocrSoakTest, err := testsetups.NewOCRSoakTest(t, &config)
@@ -42,7 +43,7 @@ func TestOCRv2Soak(t *testing.T) {
 }
 
 func TestOCRSoak_GethReorgBelowFinality_FinalityTagDisabled(t *testing.T) {
-	config, err := tc.GetConfig(t.Name(), tc.OCR)
+	config, err := tc.GetConfig([]string{t.Name()}, tc.OCR)
 	require.NoError(t, err, "Error getting config")
 	ocrSoakTest, err := testsetups.NewOCRSoakTest(t, &config)
 	require.NoError(t, err, "Error creating OCR soak test")
@@ -50,7 +51,7 @@ func TestOCRSoak_GethReorgBelowFinality_FinalityTagDisabled(t *testing.T) {
 }
 
 func TestOCRSoak_GethReorgBelowFinality_FinalityTagEnabled(t *testing.T) {
-	config, err := tc.GetConfig(t.Name(), tc.OCR)
+	config, err := tc.GetConfig([]string{t.Name()}, tc.OCR)
 	require.NoError(t, err, "Error getting config")
 	ocrSoakTest, err := testsetups.NewOCRSoakTest(t, &config)
 	require.NoError(t, err, "Error creating OCR soak test")
@@ -58,7 +59,7 @@ func TestOCRSoak_GethReorgBelowFinality_FinalityTagEnabled(t *testing.T) {
 }
 
 func TestOCRSoak_GasSpike(t *testing.T) {
-	config, err := tc.GetConfig(t.Name(), tc.OCR)
+	config, err := tc.GetConfig([]string{t.Name()}, tc.OCR)
 	require.NoError(t, err, "Error getting config")
 	ocrSoakTest, err := testsetups.NewOCRSoakTest(t, &config)
 	require.NoError(t, err, "Error creating OCR soak test")
@@ -67,7 +68,7 @@ func TestOCRSoak_GasSpike(t *testing.T) {
 
 // TestOCRSoak_ChangeBlockGasLimit changes next block gas limit and sets it to percentage of last gasUsed in previous block creating congestion
 func TestOCRSoak_ChangeBlockGasLimit(t *testing.T) {
-	config, err := tc.GetConfig(t.Name(), tc.OCR)
+	config, err := tc.GetConfig([]string{t.Name()}, tc.OCR)
 	require.NoError(t, err, "Error getting config")
 	ocrSoakTest, err := testsetups.NewOCRSoakTest(t, &config)
 	require.NoError(t, err, "Error creating OCR soak test")
@@ -76,7 +77,7 @@ func TestOCRSoak_ChangeBlockGasLimit(t *testing.T) {
 
 // TestOCRSoak_RPCDownForAllCLNodes simulates a network chaos by bringing down network to RPC node for all Chainlink Nodes
 func TestOCRSoak_RPCDownForAllCLNodes(t *testing.T) {
-	config, err := tc.GetConfig(t.Name(), tc.OCR)
+	config, err := tc.GetConfig([]string{t.Name()}, tc.OCR)
 	require.NoError(t, err, "Error getting config")
 	require.True(t, config.Network.IsSimulatedGethSelected(), "This test requires simulated geth")
 
@@ -100,7 +101,7 @@ func TestOCRSoak_RPCDownForAllCLNodes(t *testing.T) {
 	require.NoError(t, err, "Error creating chaos")
 	ocrSoakTest, err := testsetups.NewOCRSoakTest(t, &config,
 		testsetups.WithNamespace(namespace),
-		testsetups.WithChaos([]*k8schaos.Chaos{chaos}),
+		testsetups.WithChaos([]*havoc.Chaos{chaos}),
 	)
 	require.NoError(t, err, "Error creating OCR soak test")
 	executeOCRSoakTest(t, ocrSoakTest, &config)
@@ -108,7 +109,7 @@ func TestOCRSoak_RPCDownForAllCLNodes(t *testing.T) {
 
 // TestOCRSoak_RPCDownForAllCLNodes simulates a network chaos by bringing down network to RPC node for 50% of Chainlink Nodes
 func TestOCRSoak_RPCDownForHalfCLNodes(t *testing.T) {
-	config, err := tc.GetConfig(t.Name(), tc.OCR)
+	config, err := tc.GetConfig([]string{t.Name()}, tc.OCR)
 	require.NoError(t, err, "Error getting config")
 	require.True(t, config.Network.IsSimulatedGethSelected(), "This test requires simulated geth")
 
@@ -133,7 +134,7 @@ func TestOCRSoak_RPCDownForHalfCLNodes(t *testing.T) {
 	require.NoError(t, err, "Error creating chaos")
 	ocrSoakTest, err := testsetups.NewOCRSoakTest(t, &config,
 		testsetups.WithNamespace(namespace),
-		testsetups.WithChaos([]*k8schaos.Chaos{chaos}),
+		testsetups.WithChaos([]*havoc.Chaos{chaos}),
 	)
 	require.NoError(t, err, "Error creating OCR soak test")
 	executeOCRSoakTest(t, ocrSoakTest, &config)
@@ -160,6 +161,11 @@ func executeOCRSoakTest(t *testing.T, test *testsetups.OCRSoakTest, config *tc.T
 	t.Cleanup(func() {
 		if err := actions.TeardownRemoteSuite(test.TearDownVals(t)); err != nil {
 			l.Error().Err(err).Msg("Error tearing down environment")
+		} else {
+			err := test.Environment().Client.RemoveNamespace(test.Environment().Cfg.Namespace)
+			if err != nil {
+				l.Error().Err(err).Msg("Error removing namespace")
+			}
 		}
 	})
 	if test.Interrupted() {
@@ -181,12 +187,12 @@ type GethNetworkDownChaosOpts struct {
 	Duration       time.Duration
 }
 
-func gethNetworkDownChaos(opts GethNetworkDownChaosOpts) (*k8schaos.Chaos, error) {
-	k8sClient, err := k8schaos.NewChaosMeshClient()
+func gethNetworkDownChaos(opts GethNetworkDownChaosOpts) (*havoc.Chaos, error) {
+	k8sClient, err := havoc.NewChaosMeshClient()
 	if err != nil {
 		return nil, err
 	}
-	return k8schaos.NewChaos(k8schaos.ChaosOpts{
+	return havoc.NewChaos(havoc.ChaosOpts{
 		Description: opts.Description,
 		DelayCreate: opts.DelayCreate,
 		Object: &v1alpha1.NetworkChaos{
@@ -220,7 +226,7 @@ func gethNetworkDownChaos(opts GethNetworkDownChaosOpts) (*k8schaos.Chaos, error
 			},
 		},
 		Client: k8sClient,
-		Logger: &k8schaos.Logger,
+		Logger: &havoc.Logger,
 	})
 
 }

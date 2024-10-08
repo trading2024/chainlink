@@ -13,8 +13,6 @@ import (
 
 	ocrtypes "github.com/smartcontractkit/libocr/offchainreporting2plus/types"
 
-	txmgrtypes "github.com/smartcontractkit/chainlink/v2/common/txmgr/types"
-
 	"github.com/smartcontractkit/chainlink-common/pkg/codec"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 	"github.com/smartcontractkit/chainlink-common/pkg/types"
@@ -26,9 +24,8 @@ import (
 )
 
 type ChainWriterConfig struct {
-	Contracts    map[string]*ContractConfig
-	SendStrategy txmgrtypes.TxStrategy
-	MaxGasPrice  *assets.Wei
+	Contracts   map[string]*ContractConfig
+	MaxGasPrice *assets.Wei
 }
 
 type ContractConfig struct {
@@ -100,11 +97,9 @@ type EventDefinitions struct {
 	// GenericTopicNames helps QueryingKeys not rely on EVM specific topic names. Key is chain specific name, value is generic name.
 	// This helps us translate chain agnostic querying key "transfer-value" to EVM specific "evmTransferEvent-weiAmountTopic".
 	GenericTopicNames map[string]string `json:"genericTopicNames,omitempty"`
-	// key is a predefined generic name for evm log event data word
-	// for e.g. first evm data word(32bytes) of USDC log event is value so the key can be called value
-	GenericDataWordNames map[string]uint8 `json:"genericDataWordNames,omitempty"`
-	// InputFields allows you to choose which indexed fields are expected from the input
-	InputFields []string `json:"inputFields,omitempty"`
+	// GenericDataWordNames key is generic name for evm log event data word that maps to on chain name.
+	// For e.g. first evm data word(32bytes) of USDC log event is value so the key can be called value.
+	GenericDataWordNames map[string]string `json:"genericDataWordDefs,omitempty"`
 	// PollingFilter should be defined on a contract level in ContractPollingFilter,
 	// unless event needs to override the contract level filter options.
 	// This will create a separate log poller filter for this event.
@@ -178,6 +173,16 @@ func (r *ReadType) UnmarshalText(text []byte) error {
 	return fmt.Errorf("unrecognized ReadType: %s", string(text))
 }
 
+type LLOConfigMode string
+
+const (
+	LLOConfigModeMercury LLOConfigMode = "mercury"
+)
+
+func (c LLOConfigMode) String() string {
+	return string(c)
+}
+
 type RelayConfig struct {
 	ChainID                *big.Big           `json:"chainID"`
 	FromBlock              uint64             `json:"fromBlock"`
@@ -195,6 +200,10 @@ type RelayConfig struct {
 	// Mercury-specific
 	FeedID                  *common.Hash `json:"feedID"`
 	EnableTriggerCapability bool         `json:"enableTriggerCapability"`
+
+	// LLO-specific
+	LLODONID      uint32        `json:"lloDonID" toml:"lloDonID"`
+	LLOConfigMode LLOConfigMode `json:"lloConfigMode" toml:"lloConfigMode"`
 }
 
 var ErrBadRelayConfig = errors.New("bad relay config")
@@ -265,8 +274,6 @@ type RouteUpdateSubscriber interface {
 }
 
 // A LogPoller wrapper that understands router proxy contracts
-//
-//go:generate mockery --quiet --name LogPollerWrapper --output ./mocks/ --case=underscore
 type LogPollerWrapper interface {
 	services.Service
 	LatestEvents(ctx context.Context) ([]OracleRequest, []OracleResponse, error)

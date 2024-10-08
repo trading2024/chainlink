@@ -20,6 +20,11 @@ import (
 	p2ptypes "github.com/smartcontractkit/chainlink/v2/core/services/p2p/types"
 )
 
+const (
+	workflowID1          = "15c631d295ef5e32deb99a10ee6804bc4af13855687559d7ff6552ac6dbb2ce0"
+	workflowExecutionID1 = "95ef5e32deb99a10ee6804bc4af13855687559d7ff6552ac6dbb2ce0abbadeed"
+)
+
 func Test_ClientRequest_MessageValidation(t *testing.T) {
 	lggr := logger.TestLogger(t)
 
@@ -30,7 +35,7 @@ func Test_ClientRequest_MessageValidation(t *testing.T) {
 	}
 
 	capDonInfo := commoncap.DON{
-		ID:      "capability-don",
+		ID:      1,
 		Members: capabilityPeers,
 		F:       1,
 	}
@@ -50,7 +55,7 @@ func Test_ClientRequest_MessageValidation(t *testing.T) {
 
 	workflowDonInfo := commoncap.DON{
 		Members: workflowPeers,
-		ID:      "workflow-don",
+		ID:      2,
 	}
 
 	executeInputs, err := values.NewMap(
@@ -68,8 +73,8 @@ func Test_ClientRequest_MessageValidation(t *testing.T) {
 
 	capabilityRequest := commoncap.CapabilityRequest{
 		Metadata: commoncap.RequestMetadata{
-			WorkflowID:          "workflowID",
-			WorkflowExecutionID: "workflowExecutionID",
+			WorkflowID:          workflowID1,
+			WorkflowExecutionID: workflowExecutionID1,
 		},
 		Inputs: executeInputs,
 		Config: transmissionSchedule,
@@ -79,7 +84,6 @@ func Test_ClientRequest_MessageValidation(t *testing.T) {
 	require.NoError(t, err)
 	capabilityResponse := commoncap.CapabilityResponse{
 		Value: m,
-		Err:   nil,
 	}
 
 	rawResponse, err := pb.MarshalCapabilityResponse(capabilityResponse)
@@ -112,7 +116,6 @@ func Test_ClientRequest_MessageValidation(t *testing.T) {
 		require.NoError(t, err)
 		capabilityResponse2 := commoncap.CapabilityResponse{
 			Value: nm,
-			Err:   nil,
 		}
 
 		rawResponse2, err := pb.MarshalCapabilityResponse(capabilityResponse2)
@@ -311,11 +314,31 @@ type clientRequestTestDispatcher struct {
 	msgs chan *types.MessageBody
 }
 
-func (t *clientRequestTestDispatcher) SetReceiver(capabilityId string, donId string, receiver types.Receiver) error {
+func (t *clientRequestTestDispatcher) Name() string {
+	return "clientRequestTestDispatcher"
+}
+
+func (t *clientRequestTestDispatcher) Start(ctx context.Context) error {
 	return nil
 }
 
-func (t *clientRequestTestDispatcher) RemoveReceiver(capabilityId string, donId string) {}
+func (t *clientRequestTestDispatcher) Close() error {
+	return nil
+}
+
+func (t *clientRequestTestDispatcher) Ready() error {
+	return nil
+}
+
+func (t *clientRequestTestDispatcher) HealthReport() map[string]error {
+	return nil
+}
+
+func (t *clientRequestTestDispatcher) SetReceiver(capabilityId string, donId uint32, receiver types.Receiver) error {
+	return nil
+}
+
+func (t *clientRequestTestDispatcher) RemoveReceiver(capabilityId string, donId uint32) {}
 
 func (t *clientRequestTestDispatcher) Send(peerID p2ptypes.PeerID, msgBody *types.MessageBody) error {
 	t.msgs <- msgBody

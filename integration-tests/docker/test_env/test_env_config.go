@@ -3,7 +3,8 @@ package test_env
 import (
 	"encoding/json"
 
-	ctf_config "github.com/smartcontractkit/chainlink-testing-framework/config"
+	ctf_config "github.com/smartcontractkit/chainlink-testing-framework/lib/config"
+
 	env "github.com/smartcontractkit/chainlink/integration-tests/types/envcommon"
 )
 

@@ -8,13 +8,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/smartcontractkit/chainlink/integration-tests/utils"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-testing-framework/logging"
-	seth_utils "github.com/smartcontractkit/chainlink-testing-framework/utils/seth"
-	"github.com/smartcontractkit/chainlink-testing-framework/utils/testcontext"
+	"github.com/smartcontractkit/chainlink-testing-framework/lib/logging"
+	"github.com/smartcontractkit/chainlink-testing-framework/lib/utils/testcontext"
 
 	"github.com/smartcontractkit/chainlink/integration-tests/actions"
 	"github.com/smartcontractkit/chainlink/integration-tests/client"
@@ -27,7 +28,7 @@ func TestFluxBasic(t *testing.T) {
 	t.Parallel()
 	l := logging.GetTestLogger(t)
 
-	config, err := tc.GetConfig("Smoke", tc.Flux)
+	config, err := tc.GetConfig([]string{"Smoke"}, tc.Flux)
 	require.NoError(t, err, "Error getting config")
 
 	privateNetwork, err := actions.EthereumNetworkConfigFromConfig(l, &config)
@@ -49,7 +50,7 @@ func TestFluxBasic(t *testing.T) {
 	evmNetwork, err := env.GetFirstEvmNetwork()
 	require.NoError(t, err, "Error getting first evm network")
 
-	sethClient, err := seth_utils.GetChainClient(config, *evmNetwork)
+	sethClient, err := utils.TestAwareSethClient(t, config, evmNetwork)
 	require.NoError(t, err, "Error getting seth client")
 
 	adapterUUID := uuid.NewString()

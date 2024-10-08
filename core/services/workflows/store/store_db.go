@@ -14,6 +14,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/values"
 	valuespb "github.com/smartcontractkit/chainlink-common/pkg/values/pb"
+
 	"github.com/smartcontractkit/chainlink/v2/core/logger"
 )
 
@@ -127,7 +128,10 @@ func stepToState(step workflowStepRow) (*WorkflowExecutionStep, error) {
 			return nil, err
 		}
 
-		inputs = values.FromMapValueProto(vmProto)
+		inputs, err = values.FromMapValueProto(vmProto)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	var (
@@ -146,7 +150,10 @@ func stepToState(step workflowStepRow) (*WorkflowExecutionStep, error) {
 			return nil, err
 		}
 
-		outputs = values.FromProto(vProto)
+		outputs, err = values.FromProto(vProto)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return &WorkflowExecutionStep{
@@ -196,11 +203,12 @@ func stateToStep(state *WorkflowExecutionStep) (workflowStepRow, error) {
 	return wsr, nil
 }
 
-// `Add` creates the relevant workflow_execution and workflow_step entries
+// Add creates the relevant workflow_execution and workflow_step entries
 // to persist the passed in ExecutionState.
-func (d *DBStore) Add(ctx context.Context, state *WorkflowExecution) error {
+func (d *DBStore) Add(ctx context.Context, state *WorkflowExecution) (WorkflowExecution, error) {
 	l := d.lggr.With("executionID", state.ExecutionID, "workflowID", state.WorkflowID, "status", state.Status)
-	return d.transact(ctx, func(db *DBStore) error {
+	var workflowExecution WorkflowExecution
+	err := d.transact(ctx, func(db *DBStore) error {
 		var wid *string
 		if state.WorkflowID != "" {
 			wid = &state.WorkflowID
@@ -213,12 +221,23 @@ func (d *DBStore) Add(ctx context.Context, state *WorkflowExecution) error {
 		}
 		l.Debug("Adding workflow execution")
 
-		err := db.insertWorkflowExecution(ctx, wex)
+		dbWex, err := db.insertWorkflowExecution(ctx, wex)
 		if err != nil {
 			return fmt.Errorf("could not insert workflow execution %s: %w", state.ExecutionID, err)
 		}
-
-		ws := []workflowStepRow{}
+		workflowExecution = WorkflowExecution{
+			ExecutionID: dbWex.ID,
+			Status:      dbWex.Status,
+			Steps:       state.Steps,
+			CreatedAt:   dbWex.CreatedAt,
+			UpdatedAt:   dbWex.UpdatedAt,
+			FinishedAt:  dbWex.FinishedAt,
+		}
+		// Tests are not passing the ID, so to avoid a nil-pointer dereference, we added this check.
+		if wid != nil {
+			workflowExecution.WorkflowID = *wid
+		}
+		var ws []workflowStepRow
 		for _, step := range state.Steps {
 			step, err := stateToStep(step)
 			if err != nil {
@@ -232,6 +251,8 @@ func (d *DBStore) Add(ctx context.Context, state *WorkflowExecution) error {
 		}
 		return nil
 	})
+
+	return workflowExecution, err
 }
 
 func (d *DBStore) upsertSteps(ctx context.Context, steps []workflowStepRow) error {
@@ -263,14 +284,15 @@ func (d *DBStore) upsertSteps(ctx context.Context, steps []workflowStepRow) erro
 	return err
 }
 
-func (d *DBStore) insertWorkflowExecution(ctx context.Context, execution *workflowExecutionRow) error {
+func (d *DBStore) insertWorkflowExecution(ctx context.Context, execution *workflowExecutionRow) (*workflowExecutionRow, error) {
 	sql := `
 	INSERT INTO
 	workflow_executions(id, workflow_id, status, created_at)
-	VALUES ($1, $2, $3, $4)
+	VALUES ($1, $2, $3, $4) RETURNING *
 	`
-	_, err := d.db.ExecContext(ctx, sql, execution.ID, execution.WorkflowID, execution.Status, d.clock.Now())
-	return err
+	wex := &workflowExecutionRow{}
+	err := d.db.GetContext(ctx, wex, sql, execution.ID, execution.WorkflowID, execution.Status, d.clock.Now())
+	return wex, err
 }
 
 func (d *DBStore) transact(ctx context.Context, fn func(*DBStore) error) error {

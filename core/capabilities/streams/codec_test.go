@@ -66,21 +66,39 @@ func TestCodec_WrapUnwrap(t *testing.T) {
 	require.NoError(t, err)
 
 	// wrong type
-	_, err = codec.UnwrapValid(values.NewBool(true), nil, 0)
+	_, err = codec.Unwrap(values.NewBool(true))
 	require.Error(t, err)
 
-	// wrong signatures
-	_, err = codec.UnwrapValid(wrapped, nil, 1)
-	require.Error(t, err)
-
-	// success
-	reports, err := codec.UnwrapValid(wrapped, allowedSigners, 2)
+	// correct reports but wrong signatures
+	unwrapped, err := codec.Unwrap(wrapped)
 	require.NoError(t, err)
-	require.Equal(t, 2, len(reports))
-	require.Equal(t, price1.Bytes(), reports[0].BenchmarkPrice)
-	require.Equal(t, price2.Bytes(), reports[1].BenchmarkPrice)
-	require.Equal(t, timestamp1, reports[0].ObservationTimestamp)
-	require.Equal(t, timestamp2, reports[1].ObservationTimestamp)
+	require.Equal(t, 2, len(unwrapped))
+	require.Equal(t, price1.Bytes(), unwrapped[0].BenchmarkPrice)
+	require.Equal(t, price2.Bytes(), unwrapped[1].BenchmarkPrice)
+	require.Equal(t, timestamp1, unwrapped[0].ObservationTimestamp)
+	require.Equal(t, timestamp2, unwrapped[1].ObservationTimestamp)
+	for _, report := range unwrapped {
+		require.Error(t, codec.Validate(report, nil, 1))
+	}
+
+	// valid signatures
+	for _, report := range unwrapped {
+		require.NoError(t, codec.Validate(report, allowedSigners, 2))
+	}
+
+	// invalid FeedID
+	wrappedInvalid, err := codec.Wrap([]datastreams.FeedReport{
+		{
+			FeedID:        id2Str, // ID #2 doesn't match what's in report #1
+			FullReport:    report1,
+			ReportContext: rawCtx,
+			Signatures:    [][]byte{signatureK1R1, signatureK2R1},
+		},
+	})
+	require.NoError(t, err)
+	_, err = codec.Unwrap(wrappedInvalid)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "feed ID mismatch")
 }
 
 func newFeedID(t *testing.T) ([32]byte, string) {
