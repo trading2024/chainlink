@@ -12,6 +12,7 @@ import (
 
 	jobv1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/job"
 	"github.com/smartcontractkit/chainlink-testing-framework/lib/utils/testcontext"
+
 	"github.com/smartcontractkit/chainlink/integration-tests/deployment"
 	"github.com/smartcontractkit/chainlink/v2/core/gethwrappers/ccip/generated/rmn_home"
 	"github.com/smartcontractkit/chainlink/v2/core/gethwrappers/ccip/generated/rmn_remote"
@@ -181,7 +182,7 @@ func TestRMN(t *testing.T) {
 	require.NoError(t, err)
 	block := latesthdr.Number.Uint64()
 	startBlocks[dstChain.Selector] = &block
-	seqNum := SendRequest(t, envWithRMN.Env, onChainState, srcChain.Selector, dstChain.Selector, false)
+	seqNum := TestSendRequest(t, envWithRMN.Env, onChainState, srcChain.Selector, dstChain.Selector, false)
 	t.Logf("expected seqNum: %d", seqNum)
 
 	expectedSeqNum := make(map[uint64]uint64)
