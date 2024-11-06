@@ -93,7 +93,7 @@ func TestAddLane(t *testing.T) {
 	startBlock := latesthdr.Number.Uint64()
 	// Send traffic on the first lane and it should not be processed by the plugin as onRamp is disabled
 	// we will check this by confirming that the message is not executed by the end of the test
-	seqNum1 := TestSendRequest(t, e.Env, state, chain1, chain2, false)
+	seqNum1 := TestSendRequest(t, e.Env, state, chain1, chain2, false, nil)
 	require.Equal(t, uint64(1), seqNum1)
 
 	// Add another lane
@@ -103,7 +103,7 @@ func TestAddLane(t *testing.T) {
 	latesthdr, err = e.Env.Chains[chain1].Client.HeaderByNumber(testcontext.Get(t), nil)
 	require.NoError(t, err)
 	startBlock2 := latesthdr.Number.Uint64()
-	seqNum2 := TestSendRequest(t, e.Env, state, chain2, chain1, false)
+	seqNum2 := TestSendRequest(t, e.Env, state, chain2, chain1, false, nil)
 	require.Equal(t, uint64(1), seqNum2)
 	require.NoError(t, ConfirmExecWithSeqNr(t, e.Env.Chains[chain2], e.Env.Chains[chain1], state.Chains[chain1].OffRamp, &startBlock2, seqNum2))
 
