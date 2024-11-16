@@ -7,12 +7,10 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
-	"github.com/ethereum/go-ethereum/accounts/abi/bind/backends"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core"
+	gethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-
-	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
+	"github.com/ethereum/go-ethereum/ethclient/simulated"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,9 +20,9 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccip/pkg/contractreader"
 	"github.com/smartcontractkit/chainlink-ccip/pkg/reader"
+	cciptypes "github.com/smartcontractkit/chainlink-ccip/pkg/types/ccipocr3"
 	"github.com/smartcontractkit/chainlink-ccip/pluginconfig"
 	"github.com/smartcontractkit/chainlink-common/pkg/types"
-	cciptypes "github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
 
 	evmconfig "github.com/smartcontractkit/chainlink/v2/core/capabilities/ccip/configs/evm"
 	"github.com/smartcontractkit/chainlink/v2/core/chains/evm/client"
@@ -40,6 +38,8 @@ import (
 )
 
 func Test_USDCReader_MessageHashes(t *testing.T) {
+	finalityDepth := 5
+
 	ctx := testutils.Context(t)
 	ethereumChain := cciptypes.ChainSelector(sel.ETHEREUM_MAINNET_OPTIMISM_1.Selector)
 	ethereumDomainCCTP := reader.CCTPDestDomains[uint64(ethereumChain)]
@@ -48,9 +48,11 @@ func Test_USDCReader_MessageHashes(t *testing.T) {
 	polygonChain := cciptypes.ChainSelector(sel.POLYGON_MAINNET.Selector)
 	polygonDomainCCTP := reader.CCTPDestDomains[uint64(polygonChain)]
 
-	ts := testSetup(ctx, t, ethereumChain, evmconfig.USDCReaderConfig)
+	ts := testSetup(ctx, t, ethereumChain, evmconfig.USDCReaderConfig, finalityDepth)
 
 	usdcReader, err := reader.NewUSDCMessageReader(
+		ctx,
+		logger.TestLogger(t),
 		map[cciptypes.ChainSelector]pluginconfig.USDCCCTPTokenConfig{
 			ethereumChain: {
 				SourceMessageTransmitterAddr: ts.contractAddr.String(),
@@ -67,6 +69,11 @@ func Test_USDCReader_MessageHashes(t *testing.T) {
 	emitMessageSent(t, ts, ethereumDomainCCTP, avalancheDomainCCTP, 41)
 	emitMessageSent(t, ts, ethereumDomainCCTP, polygonDomainCCTP, 31)
 	emitMessageSent(t, ts, ethereumDomainCCTP, polygonDomainCCTP, 41)
+	// Finalize events
+	for i := 0; i < finalityDepth; i++ {
+		ts.sb.Commit()
+	}
+	emitMessageSent(t, ts, ethereumDomainCCTP, avalancheDomainCCTP, 51)
 
 	// Need to replay as sometimes the logs are not picked up by the log poller (?)
 	// Maybe another situation where chain reader doesn't register filters as expected.
@@ -167,25 +174,30 @@ func Test_USDCReader_MessageHashes(t *testing.T) {
 				reader.NewMessageTokenID(1, 3),
 			},
 		},
+		{
+			name: "not finalized events are not returned",
+			tokens: map[reader.MessageTokenID]cciptypes.RampTokenAmount{
+				reader.NewMessageTokenID(1, 5): {
+					ExtraData: reader.NewSourceTokenDataPayload(51, ethereumDomainCCTP).ToBytes(),
+				},
+			},
+			sourceChain:    ethereumChain,
+			destChain:      avalancheChain,
+			expectedMsgIDs: []reader.MessageTokenID{},
+		},
 	}
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Eventually(t, func() bool {
-				hashes, err1 := usdcReader.MessageHashes(ctx, tc.sourceChain, tc.destChain, tc.tokens)
-				require.NoError(t, err1)
+			hashes, err1 := usdcReader.MessageHashes(ctx, tc.sourceChain, tc.destChain, tc.tokens)
+			require.NoError(t, err1)
 
-				if len(tc.expectedMsgIDs) != len(hashes) {
-					return false
-				}
+			require.Equal(t, len(tc.expectedMsgIDs), len(hashes))
 
-				for _, msgID := range tc.expectedMsgIDs {
-					if _, ok := hashes[msgID]; !ok {
-						return false
-					}
-				}
-				return true
-			}, tests.WaitTimeout(t), 50*time.Millisecond)
+			for _, msgID := range tc.expectedMsgIDs {
+				_, ok := hashes[msgID]
+				require.True(t, ok)
+			}
 		})
 	}
 }
@@ -207,7 +219,7 @@ func emitMessageSent(t *testing.T, testEnv *testSetupData, source, dest uint32, 
 	testEnv.sb.Commit()
 }
 
-func testSetup(ctx context.Context, t *testing.T, readerChain cciptypes.ChainSelector, cfg evmtypes.ChainReaderConfig) *testSetupData {
+func testSetup(ctx context.Context, t *testing.T, readerChain cciptypes.ChainSelector, cfg evmtypes.ChainReaderConfig, depth int) *testSetupData {
 	const chainID = 1337
 
 	// Generate a new key pair for the simulated account
@@ -216,8 +228,8 @@ func testSetup(ctx context.Context, t *testing.T, readerChain cciptypes.ChainSel
 	// Set up the genesis account with balance
 	blnc, ok := big.NewInt(0).SetString("999999999999999999999999999999999999", 10)
 	assert.True(t, ok)
-	alloc := map[common.Address]core.GenesisAccount{crypto.PubkeyToAddress(privateKey.PublicKey): {Balance: blnc}}
-	simulatedBackend := backends.NewSimulatedBackend(alloc, 0)
+	alloc := map[common.Address]gethtypes.Account{crypto.PubkeyToAddress(privateKey.PublicKey): {Balance: blnc}}
+	simulatedBackend := simulated.NewBackend(alloc, simulated.WithBlockGasLimit(0))
 	// Create a transactor
 
 	auth, err := bind.NewKeyedTransactorWithChainID(privateKey, big.NewInt(chainID))
@@ -226,12 +238,12 @@ func testSetup(ctx context.Context, t *testing.T, readerChain cciptypes.ChainSel
 
 	address, _, _, err := usdc_reader_tester.DeployUSDCReaderTester(
 		auth,
-		simulatedBackend,
+		simulatedBackend.Client(),
 	)
 	require.NoError(t, err)
 	simulatedBackend.Commit()
 
-	contract, err := usdc_reader_tester.NewUSDCReaderTester(address, simulatedBackend)
+	contract, err := usdc_reader_tester.NewUSDCReaderTester(address, simulatedBackend.Client())
 	require.NoError(t, err)
 
 	lggr := logger.TestLogger(t)
@@ -239,7 +251,7 @@ func testSetup(ctx context.Context, t *testing.T, readerChain cciptypes.ChainSel
 	db := pgtest.NewSqlxDB(t)
 	lpOpts := logpoller.Opts{
 		PollPeriod:               time.Millisecond,
-		FinalityDepth:            0,
+		FinalityDepth:            int64(depth),
 		BackfillBatchSize:        10,
 		RpcBatchSize:             10,
 		KeepFinalizedBlocksDepth: 100000,
@@ -280,7 +292,7 @@ func testSetup(ctx context.Context, t *testing.T, readerChain cciptypes.ChainSel
 type testSetupData struct {
 	contractAddr common.Address
 	contract     *usdc_reader_tester.USDCReaderTester
-	sb           *backends.SimulatedBackend
+	sb           *simulated.Backend
 	auth         *bind.TransactOpts
 	cl           client.Client
 	reader       types.ContractReader

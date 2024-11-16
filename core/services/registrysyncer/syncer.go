@@ -44,6 +44,7 @@ type RegistrySyncer interface {
 
 type registrySyncer struct {
 	services.StateMachine
+	metrics              *syncerMetricLabeler
 	stopCh               services.StopChan
 	launchers            []Launcher
 	reader               types.ContractReader
@@ -75,7 +76,14 @@ func New(
 	registryAddress string,
 	orm ORM,
 ) (RegistrySyncer, error) {
+
+	metricLabeler, err := newSyncerMetricLabeler()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create syncer metric labeler: %w", err)
+	}
+
 	return &registrySyncer{
+		metrics:    metricLabeler,
 		stopCh:     make(services.StopChan),
 		updateChan: make(chan *LocalRegistry),
 		lggr:       lggr.Named("RegistrySyncer"),
@@ -153,7 +161,8 @@ func (s *registrySyncer) syncLoop() {
 
 	// Sync for a first time outside the loop; this means we'll start a remote
 	// sync immediately once spinning up syncLoop, as by default a ticker will
-	// fire for the first time at T+N, where N is the interval.
+	// fire for the first time at T+N, where N is the interval. We do not
+	// increment RemoteRegistryFailureCounter the first time
 	s.lggr.Debug("starting initial sync with remote registry")
 	err := s.Sync(ctx, true)
 	if err != nil {
@@ -169,6 +178,7 @@ func (s *registrySyncer) syncLoop() {
 			err := s.Sync(ctx, false)
 			if err != nil {
 				s.lggr.Errorw("failed to sync with remote registry", "error", err)
+				s.metrics.incrementRemoteRegistryFailureCounter(ctx)
 			}
 		}
 	}
@@ -194,7 +204,7 @@ func (s *registrySyncer) updateStateLoop() {
 	}
 }
 
-func (s *registrySyncer) localRegistry(ctx context.Context) (*LocalRegistry, error) {
+func (s *registrySyncer) importOnchainRegistry(ctx context.Context) (*LocalRegistry, error) {
 	caps := []kcr.CapabilitiesRegistryCapabilityInfo{}
 
 	err := s.reader.GetLatestValue(ctx, s.capabilitiesContract.ReadIdentifier("getCapabilities"), primitives.Unconfirmed, nil, &caps)
@@ -241,14 +251,14 @@ func (s *registrySyncer) localRegistry(ctx context.Context) (*LocalRegistry, err
 		}
 	}
 
-	nodes := []kcr.CapabilitiesRegistryNodeInfo{}
+	nodes := []kcr.INodeInfoProviderNodeInfo{}
 
 	err = s.reader.GetLatestValue(ctx, s.capabilitiesContract.ReadIdentifier("getNodes"), primitives.Unconfirmed, nil, &nodes)
 	if err != nil {
 		return nil, err
 	}
 
-	idsToNodes := map[p2ptypes.PeerID]kcr.CapabilitiesRegistryNodeInfo{}
+	idsToNodes := map[p2ptypes.PeerID]kcr.INodeInfoProviderNodeInfo{}
 	for _, node := range nodes {
 		idsToNodes[node.P2pId] = node
 	}
@@ -280,33 +290,33 @@ func (s *registrySyncer) Sync(ctx context.Context, isInitialSync bool) error {
 		s.reader = reader
 	}
 
-	var lr *LocalRegistry
+	var latestRegistry *LocalRegistry
 	var err error
 
 	if isInitialSync {
 		s.lggr.Debug("syncing with local registry")
-		lr, err = s.orm.LatestLocalRegistry(ctx)
+		latestRegistry, err = s.orm.LatestLocalRegistry(ctx)
 		if err != nil {
 			s.lggr.Warnw("failed to sync with local registry, using remote registry instead", "error", err)
 		} else {
-			lr.lggr = s.lggr
-			lr.getPeerID = s.getPeerID
+			latestRegistry.lggr = s.lggr
+			latestRegistry.getPeerID = s.getPeerID
 		}
 	}
 
-	if lr == nil {
+	if latestRegistry == nil {
 		s.lggr.Debug("syncing with remote registry")
-		localRegistry, err := s.localRegistry(ctx)
+		importedRegistry, err := s.importOnchainRegistry(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to sync with remote registry: %w", err)
 		}
-		lr = localRegistry
+		latestRegistry = importedRegistry
 		// Attempt to send local registry to the update channel without blocking
 		// This is to prevent the tests from hanging if they are not calling `Start()` on the syncer
 		select {
 		case <-s.stopCh:
 			s.lggr.Debug("sync cancelled, stopping")
-		case s.updateChan <- lr:
+		case s.updateChan <- latestRegistry:
 			// Successfully sent state
 			s.lggr.Debug("remote registry update triggered successfully")
 		default:
@@ -316,9 +326,10 @@ func (s *registrySyncer) Sync(ctx context.Context, isInitialSync bool) error {
 	}
 
 	for _, h := range s.launchers {
-		lrCopy := deepCopyLocalRegistry(lr)
+		lrCopy := deepCopyLocalRegistry(latestRegistry)
 		if err := h.Launch(ctx, &lrCopy); err != nil {
 			s.lggr.Errorf("error calling launcher: %s", err)
+			s.metrics.incrementLauncherFailureCounter(ctx)
 		}
 	}
 
@@ -343,7 +354,7 @@ func deepCopyLocalRegistry(lr *LocalRegistry) LocalRegistry {
 		capCfgs := make(map[string]CapabilityConfiguration, len(don.CapabilityConfigurations))
 		for capID, capCfg := range don.CapabilityConfigurations {
 			capCfgs[capID] = CapabilityConfiguration{
-				Config: capCfg.Config[:],
+				Config: capCfg.Config,
 			}
 		}
 		lrCopy.IDsToDONs[id] = DON{
@@ -358,14 +369,15 @@ func deepCopyLocalRegistry(lr *LocalRegistry) LocalRegistry {
 		lrCopy.IDsToCapabilities[id] = cp
 	}
 
-	lrCopy.IDsToNodes = make(map[p2ptypes.PeerID]kcr.CapabilitiesRegistryNodeInfo, len(lr.IDsToNodes))
+	lrCopy.IDsToNodes = make(map[p2ptypes.PeerID]kcr.INodeInfoProviderNodeInfo, len(lr.IDsToNodes))
 	for id, node := range lr.IDsToNodes {
-		nodeInfo := kcr.CapabilitiesRegistryNodeInfo{
+		nodeInfo := kcr.INodeInfoProviderNodeInfo{
 			NodeOperatorId:      node.NodeOperatorId,
 			ConfigCount:         node.ConfigCount,
 			WorkflowDONId:       node.WorkflowDONId,
 			Signer:              node.Signer,
 			P2pId:               node.P2pId,
+			EncryptionPublicKey: node.EncryptionPublicKey,
 			HashedCapabilityIds: make([][32]byte, len(node.HashedCapabilityIds)),
 			CapabilitiesDONIds:  make([]*big.Int, len(node.CapabilitiesDONIds)),
 		}
@@ -377,15 +389,24 @@ func deepCopyLocalRegistry(lr *LocalRegistry) LocalRegistry {
 	return lrCopy
 }
 
+type ContractCapabilityType uint8
+
+const (
+	ContractCapabilityTypeTrigger ContractCapabilityType = iota
+	ContractCapabilityTypeAction
+	ContractCapabilityTypeConsensus
+	ContractCapabilityTypeTarget
+)
+
 func toCapabilityType(capabilityType uint8) capabilities.CapabilityType {
-	switch capabilityType {
-	case 0:
+	switch ContractCapabilityType(capabilityType) {
+	case ContractCapabilityTypeTrigger:
 		return capabilities.CapabilityTypeTrigger
-	case 1:
+	case ContractCapabilityTypeAction:
 		return capabilities.CapabilityTypeAction
-	case 2:
+	case ContractCapabilityTypeConsensus:
 		return capabilities.CapabilityTypeConsensus
-	case 3:
+	case ContractCapabilityTypeTarget:
 		return capabilities.CapabilityTypeTarget
 	default:
 		return capabilities.CapabilityTypeUnknown
@@ -425,14 +446,10 @@ func (s *registrySyncer) Close() error {
 	})
 }
 
-func (s *registrySyncer) Ready() error {
-	return nil
-}
-
 func (s *registrySyncer) HealthReport() map[string]error {
-	return nil
+	return map[string]error{s.Name(): s.Healthy()}
 }
 
 func (s *registrySyncer) Name() string {
-	return "RegistrySyncer"
+	return s.lggr.Name()
 }

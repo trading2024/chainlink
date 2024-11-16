@@ -1,6 +1,7 @@
 package evm
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,12 +16,12 @@ import (
 	llotypes "github.com/smartcontractkit/chainlink-common/pkg/types/llo"
 	v3 "github.com/smartcontractkit/chainlink-common/pkg/types/mercury/v3"
 	"github.com/smartcontractkit/chainlink-data-streams/llo"
-	ubig "github.com/smartcontractkit/chainlink/v2/core/chains/evm/utils/big"
-	"github.com/smartcontractkit/chainlink/v2/core/services/relay/evm/mercury"
-	reporttypes "github.com/smartcontractkit/chainlink/v2/core/services/relay/evm/mercury/v3/types"
 
+	ubig "github.com/smartcontractkit/chainlink/v2/core/chains/evm/utils/big"
 	"github.com/smartcontractkit/chainlink/v2/core/logger"
+	"github.com/smartcontractkit/chainlink/v2/core/services/relay/evm/mercury"
 	reportcodecv3 "github.com/smartcontractkit/chainlink/v2/core/services/relay/evm/mercury/v3/reportcodec"
+	reporttypes "github.com/smartcontractkit/chainlink/v2/core/services/relay/evm/mercury/v3/types"
 )
 
 var (
@@ -54,7 +55,7 @@ func (r *ReportFormatEVMPremiumLegacyOpts) Decode(opts []byte) error {
 	return json.Unmarshal(opts, r)
 }
 
-func (r ReportCodecPremiumLegacy) Encode(report llo.Report, cd llotypes.ChannelDefinition) ([]byte, error) {
+func (r ReportCodecPremiumLegacy) Encode(ctx context.Context, report llo.Report, cd llotypes.ChannelDefinition) ([]byte, error) {
 	if report.Specimen {
 		return nil, errors.New("ReportCodecPremiumLegacy does not support encoding specimen reports")
 	}
@@ -84,14 +85,14 @@ func (r ReportCodecPremiumLegacy) Encode(report llo.Report, cd llotypes.ChannelD
 	rf := v3.ReportFields{
 		ValidFromTimestamp: report.ValidAfterSeconds + 1,
 		Timestamp:          report.ObservationTimestampSeconds,
-		NativeFee:          CalculateFee(nativePrice.Decimal(), opts.BaseUSDFee),
-		LinkFee:            CalculateFee(linkPrice.Decimal(), opts.BaseUSDFee),
+		NativeFee:          CalculateFee(nativePrice, opts.BaseUSDFee),
+		LinkFee:            CalculateFee(linkPrice, opts.BaseUSDFee),
 		ExpiresAt:          report.ObservationTimestampSeconds + opts.ExpirationWindow,
 		BenchmarkPrice:     quote.Benchmark.Mul(multiplier).BigInt(),
 		Bid:                quote.Bid.Mul(multiplier).BigInt(),
 		Ask:                quote.Ask.Mul(multiplier).BigInt(),
 	}
-	return codec.BuildReport(rf)
+	return codec.BuildReport(ctx, rf)
 }
 
 func (r ReportCodecPremiumLegacy) Decode(b []byte) (*reporttypes.Report, error) {
@@ -123,32 +124,56 @@ func (r ReportCodecPremiumLegacy) Pack(digest types.ConfigDigest, seqNr uint64, 
 	return payload, nil
 }
 
-// TODO: Test this
-// MERC-3524
-func ExtractReportValues(report llo.Report) (nativePrice, linkPrice *llo.Decimal, quote *llo.Quote, err error) {
+// ExtractReportValues extracts the native price, link price and quote from the report
+// Can handle either *Decimal or *Quote types for native/link prices
+func ExtractReportValues(report llo.Report) (nativePrice, linkPrice decimal.Decimal, quote *llo.Quote, err error) {
 	if len(report.Values) != 3 {
-		return nil, nil, nil, fmt.Errorf("ReportCodecPremiumLegacy requires exactly 3 values (NativePrice, LinkPrice, Quote{Bid, Mid, Ask}); got report.Values: %#v", report.Values)
+		err = fmt.Errorf("ReportCodecPremiumLegacy requires exactly 3 values (NativePrice, LinkPrice, Quote{Bid, Mid, Ask}); got report.Values: %v", report.Values)
+		return
+	}
+	nativePrice, err = extractPrice(report.Values[0])
+	if err != nil {
+		err = fmt.Errorf("ReportCodecPremiumLegacy failed to extract native price: %w", err)
+		return
+	}
+	linkPrice, err = extractPrice(report.Values[1])
+	if err != nil {
+		err = fmt.Errorf("ReportCodecPremiumLegacy failed to extract link price: %w", err)
+		return
 	}
 	var is bool
-	nativePrice, is = report.Values[0].(*llo.Decimal)
-	if nativePrice == nil {
-		// Missing price median will cause a zero fee
-		nativePrice = llo.ToDecimal(decimal.Zero)
-	} else if !is {
-		return nil, nil, nil, fmt.Errorf("ReportCodecPremiumLegacy expects first value to be of type *Decimal; got: %T", report.Values[0])
-	}
-	linkPrice, is = report.Values[1].(*llo.Decimal)
-	if linkPrice == nil {
-		// Missing price median will cause a zero fee
-		linkPrice = llo.ToDecimal(decimal.Zero)
-	} else if !is {
-		return nil, nil, nil, fmt.Errorf("ReportCodecPremiumLegacy expects second value to be of type *Decimal; got: %T", report.Values[1])
-	}
 	quote, is = report.Values[2].(*llo.Quote)
 	if !is {
-		return nil, nil, nil, fmt.Errorf("ReportCodecPremiumLegacy expects third value to be of type *Quote; got: %T", report.Values[2])
+		err = fmt.Errorf("ReportCodecPremiumLegacy expects third stream value to be of type *Quote; got: %T", report.Values[2])
+		return
+	}
+	if quote == nil {
+		err = errors.New("ReportCodecPremiumLegacy expects third stream value to be non-nil")
+		return
 	}
 	return nativePrice, linkPrice, quote, nil
+}
+
+func extractPrice(price llo.StreamValue) (decimal.Decimal, error) {
+	switch p := price.(type) {
+	case *llo.Decimal:
+		if p == nil {
+			// Missing price will cause a zero fee
+			return decimal.Zero, nil
+		}
+		return p.Decimal(), nil
+	case *llo.Quote:
+		// in case of quote feed, use the benchmark price
+		if p == nil {
+			return decimal.Zero, nil
+		}
+		return p.Benchmark, nil
+
+	case nil:
+		return decimal.Zero, nil
+	default:
+		return decimal.Zero, fmt.Errorf("expected *Decimal or *Quote; got: %T", price)
+	}
 }
 
 // TODO: Consider embedding the DON ID here?

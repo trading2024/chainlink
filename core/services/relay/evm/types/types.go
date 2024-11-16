@@ -58,6 +58,14 @@ type ChainCodecConfig struct {
 	ModifierConfigs codec.ModifiersConfig `json:"modifierConfigs,omitempty" toml:"modifierConfigs,omitempty"`
 }
 
+type DataWordDetail struct {
+	Name string `json:"name"`
+	// Index is indexed from 0. Index should only be used as an override in specific edge case scenarios where the index can't be programmatically calculated, otherwise leave this as nil.
+	Index *int `json:"index,omitempty"`
+	// Type should follow the geth ABI types naming convention
+	Type string `json:"type,omitempty"`
+}
+
 type ContractPollingFilter struct {
 	GenericEventNames []string `json:"genericEventNames"`
 	PollingFilter     `json:"pollingFilter"`
@@ -97,9 +105,9 @@ type EventDefinitions struct {
 	// GenericTopicNames helps QueryingKeys not rely on EVM specific topic names. Key is chain specific name, value is generic name.
 	// This helps us translate chain agnostic querying key "transfer-value" to EVM specific "evmTransferEvent-weiAmountTopic".
 	GenericTopicNames map[string]string `json:"genericTopicNames,omitempty"`
-	// GenericDataWordNames key is generic name for evm log event data word that maps to on chain name.
+	// GenericDataWordDetails key is generic name for evm log event data word that maps to chain details.
 	// For e.g. first evm data word(32bytes) of USDC log event is value so the key can be called value.
-	GenericDataWordNames map[string]string `json:"genericDataWordDefs,omitempty"`
+	GenericDataWordDetails map[string]DataWordDetail `json:"genericDataWordDetails,omitempty"`
 	// PollingFilter should be defined on a contract level in ContractPollingFilter,
 	// unless event needs to override the contract level filter options.
 	// This will create a separate log poller filter for this event.
@@ -176,11 +184,18 @@ func (r *ReadType) UnmarshalText(text []byte) error {
 type LLOConfigMode string
 
 const (
-	LLOConfigModeMercury LLOConfigMode = "mercury"
+	LLOConfigModeMercury   LLOConfigMode = "mercury"
+	LLOConfigModeBlueGreen LLOConfigMode = "bluegreen"
 )
 
 func (c LLOConfigMode) String() string {
 	return string(c)
+}
+
+type DualTransmissionConfig struct {
+	ContractAddress    common.Address      `json:"contractAddress" toml:"contractAddress"`
+	TransmitterAddress common.Address      `json:"transmitterAddress" toml:"transmitterAddress"`
+	Meta               map[string][]string `json:"meta" toml:"meta"`
 }
 
 type RelayConfig struct {
@@ -198,12 +213,18 @@ type RelayConfig struct {
 	SendingKeys pq.StringArray `json:"sendingKeys"`
 
 	// Mercury-specific
-	FeedID                  *common.Hash `json:"feedID"`
-	EnableTriggerCapability bool         `json:"enableTriggerCapability"`
+	FeedID                   *common.Hash `json:"feedID"`
+	EnableTriggerCapability  bool         `json:"enableTriggerCapability"`
+	TriggerCapabilityName    string       `json:"triggerCapabilityName"`
+	TriggerCapabilityVersion string       `json:"triggerCapabilityVersion"`
 
 	// LLO-specific
 	LLODONID      uint32        `json:"lloDonID" toml:"lloDonID"`
 	LLOConfigMode LLOConfigMode `json:"lloConfigMode" toml:"lloConfigMode"`
+
+	// DualTransmission specific
+	EnableDualTransmission bool                    `json:"enableDualTransmission" toml:"enableDualTransmission"`
+	DualTransmissionConfig *DualTransmissionConfig `json:"dualTransmission" toml:"dualTransmission"`
 }
 
 var ErrBadRelayConfig = errors.New("bad relay config")
@@ -224,7 +245,7 @@ func NewRelayOpts(args types.RelayArgs) *RelayOpts {
 
 func (o *RelayOpts) RelayConfig() (RelayConfig, error) {
 	var empty RelayConfig
-	//TODO this should be done once and the error should be cached
+	// TODO this should be done once and the error should be cached
 	if o.c == nil {
 		var c RelayConfig
 		err := json.Unmarshal(o.RelayArgs.RelayConfig, &c)

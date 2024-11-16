@@ -65,11 +65,11 @@ func (cs *LogEventTriggerGRPCService) Ready() error {
 }
 
 func (cs *LogEventTriggerGRPCService) HealthReport() map[string]error {
-	return nil
+	return map[string]error{cs.Name(): nil}
 }
 
 func (cs *LogEventTriggerGRPCService) Name() string {
-	return serviceName
+	return cs.s.Logger.Name()
 }
 
 func (cs *LogEventTriggerGRPCService) Infos(ctx context.Context) ([]capabilities.CapabilityInfo, error) {
@@ -92,6 +92,7 @@ func (cs *LogEventTriggerGRPCService) Initialise(
 	errorLog core.ErrorLog,
 	pipelineRunner core.PipelineRunnerService,
 	relayerSet core.RelayerSet,
+	oracleFactory core.OracleFactory,
 ) error {
 	cs.s.Logger.Debugf("Initialising %s", serviceName)
 

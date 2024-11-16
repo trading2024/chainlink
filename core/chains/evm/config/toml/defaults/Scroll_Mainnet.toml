@@ -15,8 +15,16 @@ BumpMin = '1 gwei'
 [GasEstimator.BlockHistory]
 BlockHistorySize = 24
 
+[GasEstimator.DAOracle]
+OracleType = 'opstack'
+OracleAddress = '0x5300000000000000000000000000000000000002'
+
 [HeadTracker]
 HistoryDepth = 50
 
 [OCR]
 ContractConfirmations = 1
+
+[Transactions.AutoPurge]
+Enabled = true
+DetectionApiUrl = 'https://venus.scroll.io'

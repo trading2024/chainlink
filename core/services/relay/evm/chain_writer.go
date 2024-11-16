@@ -191,9 +191,9 @@ func (w *chainWriter) GetFeeComponents(ctx context.Context) (*commontypes.ChainF
 		return nil, err
 	}
 	// Use legacy if no dynamic is available.
-	gasPrice := fee.Legacy.ToInt()
-	if fee.DynamicFeeCap != nil {
-		gasPrice = fee.DynamicFeeCap.ToInt()
+	gasPrice := fee.GasPrice.ToInt()
+	if fee.GasFeeCap != nil {
+		gasPrice = fee.GasFeeCap.ToInt()
 	}
 	if gasPrice == nil {
 		return nil, fmt.Errorf("dynamic fee and legacy gas price missing %+v", fee)
@@ -223,17 +223,11 @@ func (w *chainWriter) Close() error {
 }
 
 func (w *chainWriter) HealthReport() map[string]error {
-	return map[string]error{
-		w.Name(): nil,
-	}
+	return map[string]error{w.Name(): w.Healthy()}
 }
 
 func (w *chainWriter) Name() string {
-	return "chain-writer"
-}
-
-func (w *chainWriter) Ready() error {
-	return nil
+	return w.logger.Name()
 }
 
 func (w *chainWriter) Start(ctx context.Context) error {

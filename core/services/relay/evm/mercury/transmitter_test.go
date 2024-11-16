@@ -43,8 +43,8 @@ func Test_MercuryTransmitter_Transmit(t *testing.T) {
 	pgtest.MustExec(t, db, `SET CONSTRAINTS mercury_transmit_requests_job_id_fkey DEFERRED`)
 	pgtest.MustExec(t, db, `SET CONSTRAINTS feed_latest_reports_job_id_fkey DEFERRED`)
 	codec := new(mockCodec)
-	benchmarkPriceDecoder := func(feedID mercuryutils.FeedID, report ocrtypes.Report) (*big.Int, error) {
-		return codec.BenchmarkPriceFromReport(report)
+	benchmarkPriceDecoder := func(ctx context.Context, feedID mercuryutils.FeedID, report ocrtypes.Report) (*big.Int, error) {
+		return codec.BenchmarkPriceFromReport(ctx, report)
 	}
 	orm := NewORM(db)
 	clients := map[string]wsrpc.Client{}
@@ -96,11 +96,12 @@ func Test_MercuryTransmitter_Transmit(t *testing.T) {
 			report := sampleV3Report
 			c := &mocks.MockWSRPCClient{}
 			clients[sURL] = c
-			triggerService := triggers.NewMercuryTriggerService(0, lggr)
+			triggerService, err := triggers.NewMercuryTriggerService(0, "", "", lggr)
+			require.NoError(t, err)
 			mt := NewTransmitter(lggr, mockCfg{}, clients, sampleClientPubKey, jobID, sampleFeedID, orm, codec, benchmarkPriceDecoder, triggerService)
 			// init the queue since we skipped starting transmitter
 			mt.servers[sURL].q.Init([]*Transmission{})
-			err := mt.Transmit(testutils.Context(t), sampleReportContext, report, sampleSigs)
+			err = mt.Transmit(testutils.Context(t), sampleReportContext, report, sampleSigs)
 			require.NoError(t, err)
 			// queue is empty
 			require.Equal(t, mt.servers[sURL].q.(*transmitQueue).pq.Len(), 0)
@@ -139,8 +140,8 @@ func Test_MercuryTransmitter_LatestTimestamp(t *testing.T) {
 	db := pgtest.NewSqlxDB(t)
 	var jobID int32
 	codec := new(mockCodec)
-	benchmarkPriceDecoder := func(feedID mercuryutils.FeedID, report ocrtypes.Report) (*big.Int, error) {
-		return codec.BenchmarkPriceFromReport(report)
+	benchmarkPriceDecoder := func(ctx context.Context, feedID mercuryutils.FeedID, report ocrtypes.Report) (*big.Int, error) {
+		return codec.BenchmarkPriceFromReport(ctx, report)
 	}
 
 	orm := NewORM(db)
@@ -234,11 +235,11 @@ type mockCodec struct {
 
 var _ mercurytypes.ReportCodec = &mockCodec{}
 
-func (m *mockCodec) BenchmarkPriceFromReport(_ ocrtypes.Report) (*big.Int, error) {
+func (m *mockCodec) BenchmarkPriceFromReport(ctx context.Context, _ ocrtypes.Report) (*big.Int, error) {
 	return m.val, m.err
 }
 
-func (m *mockCodec) ObservationTimestampFromReport(report ocrtypes.Report) (uint32, error) {
+func (m *mockCodec) ObservationTimestampFromReport(ctx context.Context, report ocrtypes.Report) (uint32, error) {
 	return 0, nil
 }
 
@@ -249,8 +250,8 @@ func Test_MercuryTransmitter_LatestPrice(t *testing.T) {
 	var jobID int32
 
 	codec := new(mockCodec)
-	benchmarkPriceDecoder := func(feedID mercuryutils.FeedID, report ocrtypes.Report) (*big.Int, error) {
-		return codec.BenchmarkPriceFromReport(report)
+	benchmarkPriceDecoder := func(ctx context.Context, feedID mercuryutils.FeedID, report ocrtypes.Report) (*big.Int, error) {
+		return codec.BenchmarkPriceFromReport(ctx, report)
 	}
 	orm := NewORM(db)
 	clients := map[string]wsrpc.Client{}
@@ -328,8 +329,8 @@ func Test_MercuryTransmitter_FetchInitialMaxFinalizedBlockNumber(t *testing.T) {
 	db := pgtest.NewSqlxDB(t)
 	var jobID int32
 	codec := new(mockCodec)
-	benchmarkPriceDecoder := func(feedID mercuryutils.FeedID, report ocrtypes.Report) (*big.Int, error) {
-		return codec.BenchmarkPriceFromReport(report)
+	benchmarkPriceDecoder := func(ctx context.Context, feedID mercuryutils.FeedID, report ocrtypes.Report) (*big.Int, error) {
+		return codec.BenchmarkPriceFromReport(ctx, report)
 	}
 	orm := NewORM(db)
 	clients := map[string]wsrpc.Client{}

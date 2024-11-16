@@ -44,7 +44,6 @@ import (
 	"github.com/smartcontractkit/chainlink/v2/core/services/ocr2/validate"
 	"github.com/smartcontractkit/chainlink/v2/core/services/ocrcommon"
 	"github.com/smartcontractkit/chainlink/v2/core/services/pipeline"
-	evmrelay "github.com/smartcontractkit/chainlink/v2/core/services/relay/evm"
 	"github.com/smartcontractkit/chainlink/v2/core/services/telemetry"
 	"github.com/smartcontractkit/chainlink/v2/core/services/webhook"
 	"github.com/smartcontractkit/chainlink/v2/core/store/models"
@@ -84,8 +83,7 @@ func TestRunner(t *testing.T) {
 	require.NoError(t, pipelineORM.Start(ctx))
 	t.Cleanup(func() { assert.NoError(t, pipelineORM.Close()) })
 	btORM := bridges.NewORM(db)
-	relayExtenders := evmtest.NewChainRelayExtenders(t, evmtest.TestChainOpts{DB: db, Client: ethClient, GeneralConfig: config, KeyStore: ethKeyStore})
-	legacyChains := evmrelay.NewLegacyChainsFromRelayerExtenders(relayExtenders)
+	legacyChains := evmtest.NewLegacyChains(t, evmtest.TestChainOpts{DB: db, Client: ethClient, GeneralConfig: config, KeyStore: ethKeyStore})
 	c := clhttptest.NewTestLocalOnlyHTTPClient()
 
 	runner := pipeline.NewRunner(pipelineORM, btORM, config.JobPipeline(), config.WebServer(), legacyChains, nil, nil, logger.TestLogger(t), c, c)
@@ -187,7 +185,7 @@ func TestRunner(t *testing.T) {
 		require.Equal(t, 1, len(jids))
 
 		// But if we delete the job, then we can.
-		require.NoError(t, jobORM.DeleteJob(ctx, jb.ID))
+		require.NoError(t, jobORM.DeleteJob(ctx, jb.ID, jb.Type))
 		jids, err = jobORM.FindJobIDsWithBridge(ctx, bridge.Name.String())
 		require.NoError(t, err)
 		require.Equal(t, 0, len(jids))
@@ -561,14 +559,13 @@ answer1      [type=median index=0];
 				c.OCR.CaptureEATelemetry = ptr(tc.specCaptureEATelemetry)
 			})
 
-			relayExtenders = evmtest.NewChainRelayExtenders(t, evmtest.TestChainOpts{DB: db, Client: ethClient, GeneralConfig: config, KeyStore: ethKeyStore})
-			legacyChains = evmrelay.NewLegacyChainsFromRelayerExtenders(relayExtenders)
+			legacyChains2 := evmtest.NewLegacyChains(t, evmtest.TestChainOpts{DB: db, Client: ethClient, GeneralConfig: config, KeyStore: ethKeyStore})
 
 			kb, err := keyStore.OCR().Create(ctx)
 			require.NoError(t, err)
 
 			s := fmt.Sprintf(minimalNonBootstrapTemplate, cltest.NewEIP55Address(), transmitterAddress.Hex(), kb.ID(), "http://blah.com", "")
-			jb, err := ocr.ValidatedOracleSpecToml(config, legacyChains, s)
+			jb, err := ocr.ValidatedOracleSpecToml(config, legacyChains2, s)
 			require.NoError(t, err)
 			err = toml.Unmarshal([]byte(s), &jb)
 			require.NoError(t, err)
@@ -588,7 +585,7 @@ answer1      [type=median index=0];
 				nil,
 				pw,
 				monitoringEndpoint,
-				legacyChains,
+				legacyChains2,
 				lggr,
 				config,
 				servicetest.Run(t, mailboxtest.NewMonitor(t)),
@@ -663,7 +660,7 @@ answer1      [type=median index=0];
 		}
 
 		// Ensure we can delete an errored
-		err = jobORM.DeleteJob(ctx, jb.ID)
+		err = jobORM.DeleteJob(ctx, jb.ID, jb.Type)
 		require.NoError(t, err)
 		se = []job.SpecError{}
 		err = db.Select(&se, `SELECT * FROM job_spec_errors`)
@@ -748,7 +745,7 @@ answer1      [type=median index=0];
 		assert.Equal(t, "4242", results.Values[0].(decimal.Decimal).String())
 
 		// Delete the job
-		err = jobORM.DeleteJob(ctx, jb.ID)
+		err = jobORM.DeleteJob(ctx, jb.ID, jb.Type)
 		require.NoError(t, err)
 
 		// Create another run, it should fail

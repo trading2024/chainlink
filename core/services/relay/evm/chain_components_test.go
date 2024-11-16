@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
-	"github.com/ethereum/go-ethereum/accounts/abi/bind/backends"
-	"github.com/ethereum/go-ethereum/core"
+	evmtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethclient/simulated"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,12 +22,6 @@ import (
 	commonconfig "github.com/smartcontractkit/chainlink-common/pkg/config"
 	commontestutils "github.com/smartcontractkit/chainlink-common/pkg/loop/testutils"
 	clcommontypes "github.com/smartcontractkit/chainlink-common/pkg/types"
-	"github.com/smartcontractkit/chainlink/v2/core/services/keystore/keys/ethkey"
-
-	"github.com/smartcontractkit/chainlink/v2/core/logger"
-	"github.com/smartcontractkit/chainlink/v2/core/services/chainlink"
-	"github.com/smartcontractkit/chainlink/v2/core/services/relay/evm"
-	"github.com/smartcontractkit/chainlink/v2/core/services/relay/evm/types"
 
 	"github.com/smartcontractkit/chainlink/v2/core/chains/evm/assets"
 	"github.com/smartcontractkit/chainlink/v2/core/chains/evm/client"
@@ -37,8 +31,12 @@ import (
 	"github.com/smartcontractkit/chainlink/v2/core/internal/testutils"
 	"github.com/smartcontractkit/chainlink/v2/core/internal/testutils/configtest"
 	"github.com/smartcontractkit/chainlink/v2/core/internal/testutils/pgtest"
-	keytypes "github.com/smartcontractkit/chainlink/v2/core/services/keystore/keys/ethkey"
+	"github.com/smartcontractkit/chainlink/v2/core/logger"
+	"github.com/smartcontractkit/chainlink/v2/core/services/chainlink"
+	"github.com/smartcontractkit/chainlink/v2/core/services/keystore/keys/ethkey"
+	"github.com/smartcontractkit/chainlink/v2/core/services/relay/evm"
 	. "github.com/smartcontractkit/chainlink/v2/core/services/relay/evm/evmtesting" //nolint common practice to import test mods with .
+	"github.com/smartcontractkit/chainlink/v2/core/services/relay/evm/types"
 )
 
 const commonGasLimitOnEvms = uint64(4712388)
@@ -133,8 +131,65 @@ func TestContractReaderEventsInitValidation(t *testing.T) {
 				},
 			},
 			expectedError: fmt.Errorf(
-				"%w: event %s doesn't exist",
+				"%w: event %q doesn't exist",
 				clcommontypes.ErrInvalidConfig, "EventName"),
+		},
+		{
+			name: "Event has a unnecessary data word index override",
+			chainContractReaders: map[string]types.ChainContractReader{
+				"ContractWithConflict": {
+					ContractABI: "[{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"address\",\"name\":\"someDW\",\"type\":\"address\"}],\"name\":\"EventName\",\"type\":\"event\"}]",
+					ContractPollingFilter: types.ContractPollingFilter{
+						GenericEventNames: []string{"SomeEvent"},
+					},
+					Configs: map[string]*types.ChainReaderDefinition{
+						"SomeEvent": {
+							ChainSpecificName: "EventName",
+							ReadType:          types.Event,
+
+							EventDefinitions: &types.EventDefinitions{
+								GenericDataWordDetails: map[string]types.DataWordDetail{
+									"DW": {
+										Name:  "someDW",
+										Index: ptr(0),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedError: fmt.Errorf("failed to init dw querying for event: %q, err: data word: %q at index: %d details, were calculated automatically and shouldn't be manully overridden by cfg",
+				"SomeEvent", "DW", 0),
+		},
+		{
+			name: "Event has a bad type defined in data word detail override config",
+			chainContractReaders: map[string]types.ChainContractReader{
+				"ContractWithConflict": {
+					ContractABI: "[{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"string\",\"name\":\"someDW\",\"type\":\"string\"}],\"name\":\"EventName\",\"type\":\"event\"}]",
+					ContractPollingFilter: types.ContractPollingFilter{
+						GenericEventNames: []string{"SomeEvent"},
+					},
+					Configs: map[string]*types.ChainReaderDefinition{
+						"SomeEvent": {
+							ChainSpecificName: "EventName",
+							ReadType:          types.Event,
+
+							EventDefinitions: &types.EventDefinitions{
+								GenericDataWordDetails: map[string]types.DataWordDetail{
+									"DW": {
+										Name:  "someDW",
+										Index: ptr(0),
+										Type:  "abcdefg",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedError: fmt.Errorf("failed to init dw querying for event: %q, err: bad abi type: \"abcdefg\" provided for data word: %q at index: %d in config",
+				"SomeEvent", "DW", 0),
 		},
 	}
 
@@ -152,16 +207,16 @@ func TestContractReaderEventsInitValidation(t *testing.T) {
 func TestChainComponents(t *testing.T) {
 	t.Parallel()
 	it := &EVMChainComponentsInterfaceTester[*testing.T]{Helper: &helper{}}
-
-	it.Helper.Init(t)
+	it.Init(t)
 
 	// add new subtests here so that it can be run on real chains too
 	RunChainComponentsEvmTests(t, it)
 	RunChainComponentsInLoopEvmTests[*testing.T](t, commontestutils.WrapContractReaderTesterForLoop(it))
+	RunChainComponentsInLoopEvmTests(t, WrapContractReaderTesterWithBindings(t, it))
 }
 
 type helper struct {
-	sim         *backends.SimulatedBackend
+	sim         *simulated.Backend
 	accounts    []*bind.TransactOpts
 	deployerKey *ecdsa.PrivateKey
 	senderKey   *ecdsa.PrivateKey
@@ -181,7 +236,6 @@ func (h *helper) Init(t *testing.T) {
 	h.client = h.Client(t)
 
 	h.txm = h.TXM(t, h.client)
-	h.Commit()
 }
 
 func (h *helper) SetupKeys(t *testing.T) {
@@ -217,12 +271,12 @@ func (h *helper) GasPriceBufferPercent() int64 {
 
 func (h *helper) Backend() bind.ContractBackend {
 	if h.sim == nil {
-		h.sim = backends.NewSimulatedBackend(
-			core.GenesisAlloc{h.accounts[0].From: {Balance: big.NewInt(math.MaxInt64)}, h.accounts[1].From: {Balance: big.NewInt(math.MaxInt64)}}, commonGasLimitOnEvms*5000)
+		h.sim = simulated.NewBackend(
+			evmtypes.GenesisAlloc{h.accounts[0].From: {Balance: big.NewInt(math.MaxInt64)}, h.accounts[1].From: {Balance: big.NewInt(math.MaxInt64)}}, simulated.WithBlockGasLimit(commonGasLimitOnEvms*5000))
 		cltest.Mine(h.sim, 1*time.Second)
 	}
 
-	return h.sim
+	return h.sim.Client()
 }
 
 func (h *helper) Commit() {
@@ -293,11 +347,11 @@ func (h *helper) TXM(t *testing.T, client client.Client) evmtxmgr.TxManager {
 
 	keyStore := app.KeyStore.Eth()
 
-	keyStore.XXXTestingOnlyAdd(h.Context(t), keytypes.FromPrivateKey(h.deployerKey))
+	keyStore.XXXTestingOnlyAdd(h.Context(t), ethkey.FromPrivateKey(h.deployerKey))
 	require.NoError(t, keyStore.Add(h.Context(t), h.accounts[0].From, h.ChainID()))
 	require.NoError(t, keyStore.Enable(h.Context(t), h.accounts[0].From, h.ChainID()))
 
-	keyStore.XXXTestingOnlyAdd(h.Context(t), keytypes.FromPrivateKey(h.senderKey))
+	keyStore.XXXTestingOnlyAdd(h.Context(t), ethkey.FromPrivateKey(h.senderKey))
 	require.NoError(t, keyStore.Add(h.Context(t), h.accounts[1].From, h.ChainID()))
 	require.NoError(t, keyStore.Enable(h.Context(t), h.accounts[1].From, h.ChainID()))
 

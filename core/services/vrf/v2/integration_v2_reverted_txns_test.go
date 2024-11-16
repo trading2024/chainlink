@@ -279,7 +279,8 @@ func fulfillVRFReq(t *testing.T,
 	require.NoError(t, err)
 
 	ec := th.uni.backend
-	chainID := th.uni.backend.Blockchain().Config().ChainID
+	chainID, err := th.uni.backend.Client().ChainID(testutils.Context(t))
+	require.NoError(t, err)
 	chain, err := th.app.GetRelayers().LegacyEVMChains().Get(chainID.String())
 	require.NoError(t, err)
 
@@ -345,7 +346,8 @@ func fulfilBatchVRFReq(t *testing.T,
 	require.NoError(t, err)
 
 	ec := th.uni.backend
-	chainID := th.uni.backend.Blockchain().Config().ChainID
+	chainID, err := th.uni.backend.Client().ChainID(testutils.Context(t))
+	require.NoError(t, err)
 	chain, err := th.app.GetRelayers().LegacyEVMChains().Get(chainID.String())
 	require.NoError(t, err)
 
@@ -455,7 +457,7 @@ func createVRFJobsNew(
 		vrfKeyIDs = append(vrfKeyIDs, vrfkey.ID())
 	}
 	// Wait until all jobs are active and listening for logs
-	gomega.NewWithT(t).Eventually(func() bool {
+	require.Eventually(t, func() bool {
 		jbs := app.JobSpawner().ActiveJobs()
 		var count int
 		for _, jb := range jbs {
@@ -464,7 +466,7 @@ func createVRFJobsNew(
 			}
 		}
 		return count == len(fromKeys)
-	}, testutils.WaitTimeout(t), 100*time.Millisecond).Should(gomega.BeTrue())
+	}, testutils.WaitTimeout(t), 100*time.Millisecond)
 	// Unfortunately the lb needs heads to be able to backfill logs to new subscribers.
 	// To avoid confirming
 	// TODO: it could just backfill immediately upon receiving a new subscriber? (though would
@@ -590,12 +592,12 @@ func newRevertTxnTH(t *testing.T,
 	}
 	coordinator := uni.rootContract
 	coordinatorAddress := uni.rootContractAddress
-	th.chainID = th.uni.backend.Blockchain().Config().ChainID
+	th.chainID = config.EVMConfigs()[0].ChainID.ToInt()
 	var err error
 
 	th.eoaConsumerAddr, _, th.eoaConsumer, err = vrf_external_sub_owner_example.DeployVRFExternalSubOwnerExample(
 		uni.neil,
-		uni.backend,
+		uni.backend.Client(),
 		coordinatorAddress,
 		uni.linkContractAddress,
 	)
